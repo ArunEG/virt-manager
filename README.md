@@ -5,6 +5,20 @@ via [libvirt](https://libvirt.org). Most usage is with QEMU/KVM
 virtual machines, but Xen and libvirt LXC containers are well
 supported. Common operations for any libvirt driver should work.
 
+![The virt-manager main window, with VM groups in the sidebar](docs/screenshots/manager.png)
+
+This fork reworks the main window around VM groups:
+
+ - **Groups**: organize the VMs of a connection into named groups, for
+   example one per network setup, and run or shut down a whole group
+   at once
+ - **Sidebar**: switch between all machines, the ungrouped ones, or a
+   single group
+ - **Machine table**: status, CPU and memory at a glance, with a detail
+   card for the selected VM
+ - **Refreshed look**: the same styling carried through the VM window,
+   wizards and dialogs
+
 Several command line tools are also provided:
 
  - `virt-install`: Create new libvirt virtual machines
