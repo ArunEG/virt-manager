@@ -377,7 +377,11 @@ class _VMMDogtailNode(dogtail.tree.Node):
         """
         combo = self.find(combolabel, "combo box")
         combo.click_combo_entry()
-        combo.find(itemlabel, "menu item").click()
+        item = combo.find(itemlabel, "menu item")
+        if not item.onscreen:
+            dogtail.rawinput.pressKey("Home")
+            item.bring_on_screen()
+        item.click()
 
     def combo_check_default(self, combolabel, itemlabel):
         """

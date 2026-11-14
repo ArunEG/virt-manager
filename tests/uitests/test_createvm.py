@@ -13,7 +13,12 @@ from . import lib
 
 
 def _open_newvm(app):
-    button = app.root.find("New", "push button")
+    button = app.root.find("create-vm", "push button")
+    if not button.sensitive:
+        manager = app.get_manager()
+        manager.find("File", "menu").click()
+        manager.find("New Virtual Machine", "menu item").click()
+        return app.find_window("New VM")
     # Launching the dialog can be very flakey without this explicit
     # point() call, not sure why
     button.point()

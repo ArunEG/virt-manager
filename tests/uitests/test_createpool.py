@@ -10,6 +10,7 @@ from . import lib
 
 
 def _open_createpool(app, hostwin):
+    lib.utils.check(lambda: hostwin.active)
     hostwin.find("pool-add", "push button").click()
     win = app.find_window("Add a New Storage Pool")
     lib.utils.check(lambda: win.active)

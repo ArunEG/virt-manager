@@ -362,6 +362,7 @@ class vmmManager(vmmGObjectUI):
         box.add(Gtk.Label(label=_("New group")))
         new_group.add(box)
         new_group.connect("clicked", self.new_group)
+        new_group.get_accessible().set_name("sidebar-new-group")
         self._new_group_button = new_group
 
         filter_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -409,6 +410,7 @@ class vmmManager(vmmGObjectUI):
         self._create_button.add(box)
         self._create_button.set_valign(Gtk.Align.CENTER)
         self._create_button.connect("clicked", self.new_vm)
+        self._create_button.get_accessible().set_name("create-vm")
 
         # The run/pause/shutdown toolbar moves next to the create button
         toolbar = self.widget("vm-toolbar")
@@ -468,6 +470,12 @@ class vmmManager(vmmGObjectUI):
             button.connect("clicked", cb)
             return button
 
+        def name_buttons():
+            # Distinct accessible names: the toolbar has buttons with the
+            # same labels
+            for name, button in self._detail_buttons.items():
+                button.get_accessible().set_name("card-" + name)
+
         self._detail_buttons = {
             "console": make_button(
                 _("Console"), self.show_vm, "utilities-terminal-symbolic", primary=True
@@ -479,6 +487,8 @@ class vmmManager(vmmGObjectUI):
             "pause": make_button(_("Pause"), self._detail_pause_cb),
             "shutdown": make_button(_("Shut down"), self.poweroff_vm),
         }
+
+        name_buttons()
 
         top = Gtk.Box(spacing=10)
         top.add(Gtk.Image.new_from_icon_name("computer-symbolic", Gtk.IconSize.LARGE_TOOLBAR))
@@ -498,6 +508,7 @@ class vmmManager(vmmGObjectUI):
             title_label.get_style_context().add_class("vmm-dim")
             value_label = Gtk.Label(xalign=0)
             value_label.set_ellipsize(Pango.EllipsizeMode.END)
+            value_label.get_accessible().set_name("card-value-" + key)
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
             box.add(title_label)
             box.add(value_label)
@@ -1153,6 +1164,7 @@ class vmmManager(vmmGObjectUI):
                 )
                 row.get_style_context().add_class("vmm-conn-row")
                 row.set_tooltip_text(self._build_conn_hint(conn))
+                row.get_accessible().set_name(self._build_conn_a11y_name(conn))
                 row.vmm_conn = conn
                 self._conn_list.add(row)
                 if conn == self._current_conn:
@@ -1160,6 +1172,14 @@ class vmmManager(vmmGObjectUI):
             self._conn_list.show_all()
         finally:
             self._sidebar_updating = False
+
+    def _build_conn_a11y_name(self, conn):
+        name = conn.get_pretty_desc()
+        if conn.is_disconnected():
+            return _("%(connection)s - Not Connected") % {"connection": name}
+        if conn.is_connecting():
+            return _("%(connection)s - Connecting...") % {"connection": name}
+        return name
 
     def _build_conn_hint(self, conn):
         hint = conn.get_uri()
@@ -1267,6 +1287,7 @@ class vmmManager(vmmGObjectUI):
             def add_row(filterval, icon_name, title, count):
                 row = self._make_side_row(icon_name, title, count=count)
                 row.vmm_filter = filterval
+                row.get_accessible().set_name("%s (%d)" % (title, count))
                 self._filter_list.add(row)
                 if filterval == self._filter:
                     self._filter_list.select_row(row)
@@ -1709,10 +1730,14 @@ class vmmManager(vmmGObjectUI):
     def _window_button_press_cb(self, _src, event):
         # Clicks that no widget handled land here: on the page background,
         # headings and so on. Treat those as clicking away from the VM,
-        # unless they are inside the detail card itself
+        # unless they belong to the detail card, VM list, or toolbar
         widget = Gtk.get_event_widget(event)
         while widget is not None:
-            if widget == self._detail_revealer:
+            if widget in (
+                self._detail_revealer,
+                self.widget("vm-list"),
+                self.widget("vm-toolbar"),
+            ):
                 return False
             widget = widget.get_parent()
         self._unselect_vm()
@@ -1752,8 +1777,9 @@ class vmmManager(vmmGObjectUI):
                 self._toggle_off_path = path
             return False
 
+        vmlist.get_selection().select_path(path)
         self.popup_vm_menu(self.model, self.model.get_iter(path), event)
-        return False
+        return True
 
     def _vm_list_button_release_cb(self, vmlist, event):
         path = self._toggle_off_path

@@ -56,7 +56,7 @@ def testInspectionMock(app):
     # cache reading
     details.window_close()
     manager.click()
-    c = manager.find("test testdriver.xml", "table cell")
+    c = app.manager_get_conn_cell("test testdriver.xml")
     app.manager_conn_disconnect("test testdriver.xml")
     lib.utils.check(lambda: "Not Connected" in c.text)
     app.manager_conn_connect("test testdriver.xml")

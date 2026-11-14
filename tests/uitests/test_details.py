@@ -1,7 +1,7 @@
 # This work is licensed under the GNU GPLv2 or later.
 # See the COPYING file in the top-level directory.
 
-import unittest
+import unittest.mock
 
 import tests.utils
 from . import lib
@@ -236,8 +236,7 @@ def testDetailsEditCPU(app):
     tab.find_fuzzy("Clear CPU", "menu item").click()
     appl.click()
     lib.utils.check(lambda: not appl.sensitive)
-    tab.find("cpu-model").click_combo_entry()
-    tab.find("coreduo", "menu item").click()
+    tab.combo_select("cpu-model", "coreduo")
     appl.click()
     lib.utils.check(lambda: not appl.sensitive)
     tab.find_fuzzy("CPU security", "check box").click()

@@ -129,5 +129,5 @@ def testPrefsKeyfile(app):
     managerwin = app.topwin
 
     # test:///default should be connected
-    managerwin.find("test default", "table cell")
-    managerwin.find("foo - Not Connected", "table cell")
+    managerwin.find("test default", "list item")
+    managerwin.find("foo - Not Connected", "list item")

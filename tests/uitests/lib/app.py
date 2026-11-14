@@ -2,6 +2,7 @@
 # See the COPYING file in the top-level directory.
 
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -10,6 +11,7 @@ import time
 from gi.repository import Gio
 import dogtail.rawinput
 import dogtail.tree
+import pyatspi
 
 from virtinst import log
 import tests.utils
@@ -103,14 +105,14 @@ class VMMDogtailApp:
         utils.check(lambda: win.showing is False)
 
     def manager_get_conn_cell(self, conn_label):
-        return self.get_manager().find(conn_label, "table cell")
+        return self.get_manager().find("conn-list").find(conn_label, "list item")
 
     def manager_conn_connect(self, conn_label):
         c = self.manager_get_conn_cell(conn_label)
         c.click(button=3)
         self.root.find("conn-connect", "menu item").click()
-        utils.check(lambda: "Not Connected" not in c.text)
-        return c
+        utils.check(lambda: "Not Connected" not in self.manager_get_conn_cell(conn_label).name)
+        return self.manager_get_conn_cell(conn_label)
 
     def manager_conn_disconnect(self, conn_label):
         c = self.manager_get_conn_cell(conn_label)
@@ -119,8 +121,8 @@ class VMMDogtailApp:
         c.click(button=3)
         menu = self.root.find("conn-menu", "menu")
         menu.find("conn-disconnect", "menu item").click()
-        utils.check(lambda: "Not Connected" in c.text)
-        return c
+        utils.check(lambda: "Not Connected" in self.manager_get_conn_cell(conn_label).name)
+        return self.manager_get_conn_cell(conn_label)
 
     def manager_conn_delete(self, conn_label):
         c = self.manager_get_conn_cell(conn_label)
@@ -149,7 +151,7 @@ class VMMDogtailApp:
         details=False,
     ):
         manager = self.get_manager()
-        vmcell = manager.find(vmname + "\n", "table cell")
+        vmcell = manager.find(re.escape(vmname) + r"(?:\n|$)", "table cell")
 
         if run:
             action = "Run"
@@ -182,8 +184,10 @@ class VMMDogtailApp:
         needs_confirm = needs_shutdown or pause
 
         def _do_click():
-            vmcell.click()
-            vmcell.click(button=3)
+            vmcell.queryComponent().scrollTo(pyatspi.SCROLL_ANYWHERE)
+            vmcell.queryComponent().grabFocus()
+            utils.check(lambda: vmcell.state_selected)
+            dogtail.rawinput.pressKey("Menu")
             menu = self.root.find("vm-action-menu")
             utils.check(lambda: menu.onscreen)
             if needs_shutdown:
@@ -220,7 +224,7 @@ class VMMDogtailApp:
         """
         Helper to open host connection window and switch to a tab
         """
-        self.root.find_fuzzy(conn_label, "table cell").click()
+        self.manager_get_conn_cell(conn_label).click()
         self.root.find_fuzzy("Edit", "menu").click()
         self.root.find_fuzzy("Connection Details", "menu item").click()
         win = self.find_window("%s - Connection Details" % conn_label)
