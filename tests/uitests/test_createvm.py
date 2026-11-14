@@ -253,6 +253,9 @@ def testNewVMCDROMRegular(app):
     # this stuff is to try and fix focus
     app.rawinput.pressKey("Escape")
     newvm.click_title()
+    # Selecting /dev/sr0 above started OS detection, which disables
+    # Forward until it finishes. Wait for that, or the click is ignored
+    newvm.find("Forward", "push button").check_sensitive()
     _forward(newvm, check=False)
     app.click_alert_button("media selection is required", "OK")
 
