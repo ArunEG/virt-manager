@@ -31,6 +31,12 @@
       <summary>Autoconnect to the default VM console when the VM window is opened</summary>
       <description>Autoconnect to the default VM console when the VM window is opened. Users may want to turn this off if they prefer to use another viewer app for their VMs, and don't want virt-manager to interfere, but they still want to use virt-manager's details. -1 = global default, 0 = off, 1 = on</description>
     </key>
+
+    <key name="group" type="s">
+      <default>""</default>
+      <summary>Manager window group for this VM</summary>
+      <description>Name of the group this VM is shown under in the manager window. If empty, the VM is listed directly under its connection.</description>
+    </key>
   </schema>
 
 
@@ -46,6 +52,12 @@
       <default>(-1, -1)</default>
       <summary>Conn details window dimensions</summary>
       <description>Connection details window dimensions</description>
+    </key>
+
+    <key name="vm-groups" type="as">
+      <default>[]</default>
+      <summary>VM groups for this connection</summary>
+      <description>Names of the VM groups shown under this connection in the manager window, including groups that currently contain no VMs.</description>
     </key>
   </schema>
 

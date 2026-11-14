@@ -1756,6 +1756,12 @@ class vmmDomain(vmmLibvirtObject):
     def del_console_username(self):
         return self.config.set_pervm(self.get_uuid(), "/console-username", "")
 
+    def get_group(self):
+        return self.config.get_pervm(self.get_uuid(), "/group") or ""
+
+    def set_group(self, group):
+        self.config.set_pervm(self.get_uuid(), "/group", group or "")
+
     def get_cache_dir(self):
         ret = os.path.join(self.conn.get_cache_dir(), self.get_uuid())
         os.makedirs(ret, 0o755, exist_ok=True)

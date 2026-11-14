@@ -14,6 +14,7 @@ from virtinst import xmlutil
 
 from . import vmmenu
 from .lib import uiutil
+from .asyncjob import vmmAsyncJob
 from .baseclass import vmmGObjectUI
 from .connmanager import vmmConnectionManager
 from .engine import vmmEngine
@@ -35,7 +36,9 @@ GRAPH_LEN = 40
     ROW_IS_VM_RUNNING,
     ROW_COLOR,
     ROW_INSPECTION_OS_ICON,
-) = range(11)
+    ROW_IS_GROUP,
+    ROW_IN_GROUP,
+) = range(13)
 
 # Columns in the tree view
 (COL_NAME, COL_GUEST_CPU, COL_HOST_CPU, COL_MEM, COL_DISK, COL_NETWORK) = range(6)
@@ -70,6 +73,81 @@ def _get_inspection_icon_pixbuf(vm, w, h):
         return None
 
 
+class _VMGroup:
+    """
+    Backing object for a VM group row in the manager list. Groups are
+    purely a manager UI concept: membership is stored per VM in gsettings,
+    and the list of groups (so empty ones persist) per connection.
+    """
+
+    def __init__(self, groupconn, name):
+        # Deliberately not named 'conn': the stats cell data funcs use
+        # hasattr(obj, "conn") to detect VM rows
+        self.groupconn = groupconn
+        self.name = name
+        self.vms = []
+
+    def _sum(self, funcname):
+        return sum(getattr(vm, funcname)() for vm in self.vms)
+
+    # Aggregate stats, so groups sort sensibly against ungrouped VMs
+    def guest_cpu_time_percentage(self):
+        return self._sum("guest_cpu_time_percentage")
+
+    def host_cpu_time_percentage(self):
+        return self._sum("host_cpu_time_percentage")
+
+    def stats_memory(self):
+        return self._sum("stats_memory")
+
+    def disk_io_rate(self):
+        return self._sum("disk_io_rate")
+
+    def network_traffic_rate(self):
+        return self._sum("network_traffic_rate")
+
+
+class _VMGroupMenu(Gtk.Menu):
+    """
+    'Group' submenu of the manager VM context menu. Rebuilt on every
+    popup, since the list of groups is dynamic
+    """
+
+    def __init__(self, manager):
+        Gtk.Menu.__init__(self)
+        self._manager = manager
+        self.get_accessible().set_name("vm-group-menu")
+
+    def update_widget_states(self, vm):
+        for child in self.get_children():
+            self.remove(child)
+            child.destroy()
+        if not vm:
+            return
+
+        manager = self._manager
+        current = vm.get_group()
+
+        for name in manager.list_group_names(vm.conn):
+            item = Gtk.CheckMenuItem.new_with_label(name)
+            item.set_draw_as_radio(True)
+            item.set_active(name == current)
+            item.connect("activate", lambda _src, n=name: manager.set_vm_group(vm, n))
+            self.add(item)
+        if self.get_children():
+            self.add(Gtk.SeparatorMenuItem())
+
+        item = Gtk.MenuItem.new_with_mnemonic(_("_New Group..."))
+        item.connect("activate", lambda _src: manager.set_vm_new_group(vm))
+        self.add(item)
+
+        item = Gtk.MenuItem.new_with_mnemonic(_("_Remove from Group"))
+        item.set_sensitive(bool(current))
+        item.connect("activate", lambda _src: manager.set_vm_group(vm, ""))
+        self.add(item)
+        self.show_all()
+
+
 class vmmManager(vmmGObjectUI):
     @classmethod
     def get_instance(cls, parentobj):
@@ -96,6 +174,9 @@ class vmmManager(vmmGObjectUI):
         self.connmenu = Gtk.Menu()
         self.connmenu.get_accessible().set_name("conn-menu")
         self.connmenu_items = {}
+        self.groupmenu = Gtk.Menu()
+        self.groupmenu.get_accessible().set_name("group-menu")
+        self.groupmenu_items = {}
 
         self.builder.connect_signals(
             {
@@ -108,6 +189,7 @@ class vmmManager(vmmGObjectUI):
                 "on_vmm_manager_configure_event": self.window_resized,
                 "on_menu_file_add_connection_activate": self.open_newconn,
                 "on_menu_new_vm_activate": self.new_vm,
+                "on_menu_new_group_activate": self.new_group,
                 "on_menu_file_quit_activate": self.exit_app,
                 "on_menu_file_close_activate": self.close,
                 "on_vmm_close_clicked": self.close,
@@ -202,6 +284,9 @@ class vmmManager(vmmGObjectUI):
         self.connmenu.destroy()
         self.connmenu = None
         self.connmenu_items = None
+        self.groupmenu.destroy()
+        self.groupmenu = None
+        self.groupmenu_items = None
 
         if self._window_size:
             self.config.set_manager_window_size(*self._window_size)
@@ -287,6 +372,7 @@ class vmmManager(vmmGObjectUI):
 
         # Build connection context menu
         add_to_menu("create", _("_New"), self.new_vm)
+        add_to_menu("newgroup", _("New _Group..."), self.new_group)
         add_to_menu("connect", _("_Connect"), self.open_conn)
         add_to_menu("disconnect", _("Dis_connect"), self.close_conn)
         self.connmenu.add(Gtk.SeparatorMenuItem())
@@ -294,6 +380,29 @@ class vmmManager(vmmGObjectUI):
         self.connmenu.add(Gtk.SeparatorMenuItem())
         add_to_menu("details", _("_Details"), self.show_host)
         self.connmenu.show_all()
+
+        # Add the 'Group' submenu to the VM context menu
+        self.vmmenu.add(Gtk.SeparatorMenuItem())
+        groupitem = Gtk.MenuItem.new_with_mnemonic(_("_Group"))
+        groupitem.vmm_widget_name = "group"
+        groupitem.set_submenu(_VMGroupMenu(self))
+        self.vmmenu.add(groupitem)
+        self.vmmenu.show_all()
+
+        # Build group context menu
+        def add_to_groupmenu(idx, text, cb):
+            item = Gtk.MenuItem.new_with_mnemonic(text)
+            item.connect("activate", cb)
+            item.get_accessible().set_name("group-%s" % idx)
+            self.groupmenu.add(item)
+            self.groupmenu_items[idx] = item
+
+        add_to_groupmenu("run", _("_Run All"), self.group_run_all)
+        add_to_groupmenu("shutdown", _("_Shut Down All"), self.group_shutdown_all)
+        self.groupmenu.add(Gtk.SeparatorMenuItem())
+        add_to_groupmenu("rename", _("Re_name..."), self.group_rename)
+        add_to_groupmenu("ungroup", _("_Delete Group"), self.group_ungroup)
+        self.groupmenu.show_all()
 
     def init_vmlist(self):
         vmlist = self.widget("vm-list")
@@ -311,6 +420,8 @@ class vmmManager(vmmGObjectUI):
         rowtypes.insert(ROW_IS_VM_RUNNING, bool)  # if VM is running
         rowtypes.insert(ROW_COLOR, str)  # row markup color string
         rowtypes.insert(ROW_INSPECTION_OS_ICON, GdkPixbuf.Pixbuf)  # OS icon
+        rowtypes.insert(ROW_IS_GROUP, bool)  # if row is a VM group
+        rowtypes.insert(ROW_IN_GROUP, bool)  # if row is a VM inside a group
 
         model = Gtk.TreeStore(*rowtypes)
         vmlist.set_model(model)
@@ -325,6 +436,18 @@ class vmmManager(vmmGObjectUI):
         nameCol.set_sort_column_id(COL_NAME)
 
         vmlist.append_column(nameCol)
+
+        # The negative level indentation above flattens the tree, so indent
+        # grouped VMs with an empty cell to set them apart from their group
+        group_indent = Gtk.CellRendererText()
+        group_indent.set_fixed_size(18, -1)
+        nameCol.pack_start(group_indent, False)
+        nameCol.add_attribute(group_indent, "visible", ROW_IN_GROUP)
+
+        group_icon = Gtk.CellRendererPixbuf()
+        group_icon.set_property("icon-name", "folder")
+        nameCol.pack_start(group_icon, False)
+        nameCol.add_attribute(group_icon, "visible", ROW_IS_GROUP)
 
         status_icon = Gtk.CellRendererPixbuf()
         status_icon.set_property("stock-size", Gtk.IconSize.DND)
@@ -394,7 +517,14 @@ class vmmManager(vmmGObjectUI):
 
     def current_vm(self):
         row = self.current_row()
-        if not row or row[ROW_IS_CONN]:
+        if not row or not row[ROW_IS_VM]:
+            return None
+
+        return row[ROW_HANDLE]
+
+    def current_group(self):
+        row = self.current_row()
+        if not row or not row[ROW_IS_GROUP]:
             return None
 
         return row[ROW_HANDLE]
@@ -406,6 +536,8 @@ class vmmManager(vmmGObjectUI):
         handle = row[ROW_HANDLE]
         if row[ROW_IS_CONN]:
             return handle
+        if row[ROW_IS_GROUP]:
+            return handle.groupconn
         return handle.conn
 
     def get_row(self, conn_or_vm):
@@ -475,6 +607,13 @@ class vmmManager(vmmGObjectUI):
 
         if vm:
             self.show_vm(_src)
+        elif self.current_group():
+            vmlist = self.widget("vm-list")
+            path = self.current_row().path
+            if vmlist.row_expanded(path):
+                vmlist.collapse_row(path)
+            else:
+                vmlist.expand_row(path, False)
         elif conn.is_disconnected():
             self.open_conn()
         else:
@@ -483,6 +622,8 @@ class vmmManager(vmmGObjectUI):
     def do_delete(self, ignore=None):
         conn = self.current_conn()
         vm = self.current_vm()
+        if self.current_group():
+            return  # pragma: no cover
         if vm is None:
             self._do_delete_conn(conn)
         else:
@@ -545,24 +686,281 @@ class vmmManager(vmmGObjectUI):
     ####################################
 
     def vm_added(self, conn, vm):
-        vm_row = self._build_row(None, vm)
-        conn_row = self.get_row(conn)
-        self.model.append(conn_row.iter, vm_row)
+        self._insert_vm_row(conn, vm)
 
         vm.connect("state-changed", self.vm_changed)
         vm.connect("resources-sampled", self.vm_row_updated)
         vm.connect("inspection-changed", self.vm_inspection_changed)
 
+    def _insert_vm_row(self, conn, vm):
+        vmlist = self.widget("vm-list")
+        conn_row = self.get_row(conn)
+        parent_row = conn_row
+        new_group = False
+
+        groupname = vm.get_group()
+        if groupname:
+            parent_row = self._get_group_row(conn, groupname)
+            if parent_row is None:
+                parent_row = self._add_group_row(conn, groupname)
+                self._save_group(conn, groupname)
+                new_group = True
+            parent_row[ROW_HANDLE].vms.append(vm)
+
+        vm_row = self._build_row(None, vm)
+        vm_row[ROW_IN_GROUP] = bool(groupname)
+        self.model.append(parent_row.iter, vm_row)
+
         # Expand a connection when adding a vm to it
-        self.widget("vm-list").expand_row(conn_row.path, False)
+        vmlist.expand_row(conn_row.path, False)
+        if groupname:
+            self._update_group_row(parent_row)
+            if new_group:
+                vmlist.expand_row(parent_row.path, False)
+
+    def _remove_vm_row(self, vm):
+        row = self.get_row(vm)
+        if row is None:
+            return  # pragma: no cover
+
+        parent_row = row.get_parent()
+        self.model.remove(row.iter)
+        if not parent_row[ROW_IS_GROUP]:
+            return
+
+        group = parent_row[ROW_HANDLE]
+        group.vms.remove(vm)
+        if group.vms or group.name in group.groupconn.get_vm_groups():
+            self._update_group_row(parent_row)
+        else:
+            # Only groups saved in the connection config outlive their VMs
+            self.model.remove(parent_row.iter)
 
     def vm_removed(self, conn, vm):
-        parent = self.get_row(conn).iter
-        for rowidx in range(self.model.iter_n_children(parent)):
-            rowiter = self.model.iter_nth_child(parent, rowidx)
-            if self.model[rowiter][ROW_HANDLE] == vm:
-                self.model.remove(rowiter)
-                break
+        ignore = conn
+        self._remove_vm_row(vm)
+
+    ########################
+    # VM grouping methods #
+    ########################
+
+    def _get_group_row(self, conn, groupname):
+        conn_row = self.get_row(conn)
+        if conn_row is None:
+            return None  # pragma: no cover
+        for row in conn_row.iterchildren():
+            if row[ROW_IS_GROUP] and row[ROW_HANDLE].name == groupname:
+                return row
+        return None
+
+    def _add_group_row(self, conn, groupname):
+        conn_row = self.get_row(conn)
+        group_row = self._build_group_row(_VMGroup(conn, groupname))
+        group_iter = self.model.append(conn_row.iter, group_row)
+        self.widget("vm-list").expand_row(conn_row.path, False)
+        return self.model[group_iter]
+
+    def _add_saved_group_rows(self, conn):
+        """
+        Add rows for the groups saved for the connection, which is
+        what makes empty groups show up
+        """
+        if not conn.is_active():
+            return
+        for groupname in conn.get_vm_groups():
+            if self._get_group_row(conn, groupname) is None:
+                self._add_group_row(conn, groupname)
+
+    def _save_group(self, conn, groupname):
+        groups = conn.get_vm_groups()
+        if groupname not in groups:
+            conn.set_vm_groups(groups + [groupname])
+
+    def _unsave_group(self, conn, groupname):
+        groups = conn.get_vm_groups()
+        if groupname in groups:
+            groups.remove(groupname)
+            conn.set_vm_groups(groups)
+
+    def _new_group_conn(self):
+        """
+        Connection a new group is created under: the selected one, or
+        if nothing is selected, the first active connection in the list
+        """
+        conn = self.current_conn()
+        if conn is None:
+            conns = [row[ROW_HANDLE] for row in self.model if row[ROW_IS_CONN]]
+            conn = next((c for c in conns if c.is_active()), None)
+        if conn is None or not conn.is_active():
+            return None
+        return conn
+
+    def new_group(self, _src):
+        conn = self._new_group_conn()
+        if conn is None:
+            return  # pragma: no cover
+
+        name = self._ask_group_name(_("New Group"), _("Name of the new group:"))
+        if not name:
+            return
+
+        self._save_group(conn, name)
+        row = self._get_group_row(conn, name)
+        if row is None:
+            row = self._add_group_row(conn, name)
+        self.widget("vm-list").get_selection().select_iter(row.iter)
+
+    def list_group_names(self, conn):
+        conn_row = self.get_row(conn)
+        names = [r[ROW_HANDLE].name for r in conn_row.iterchildren() if r[ROW_IS_GROUP]]
+        return sorted(names, key=str.lower)
+
+    def _build_group_markup(self, group):
+        nrunning = len([vm for vm in group.vms if vm.is_active()])
+        nametext = "<span size='smaller' weight='bold'>%s</span>" % xmlutil.xml_escape(group.name)
+        counttext = "<span size='smaller'>%s</span>" % xmlutil.xml_escape(
+            _("%(running)d of %(total)d running") % {"running": nrunning, "total": len(group.vms)}
+        )
+        return nametext + "\n" + counttext
+
+    def _build_group_row(self, group):
+        row = []
+        row.insert(ROW_HANDLE, group)
+        row.insert(ROW_SORT_KEY, group.name)
+        row.insert(ROW_MARKUP, self._build_group_markup(group))
+        row.insert(ROW_STATUS_ICON, None)
+        row.insert(ROW_HINT, None)
+        row.insert(ROW_IS_CONN, False)
+        row.insert(ROW_IS_CONN_CONNECTED, False)
+        row.insert(ROW_IS_VM, False)
+        row.insert(ROW_IS_VM_RUNNING, False)
+        row.insert(ROW_COLOR, None)
+        row.insert(ROW_INSPECTION_OS_ICON, None)
+        row.insert(ROW_IS_GROUP, True)
+        row.insert(ROW_IN_GROUP, False)
+        return row
+
+    def _update_group_row(self, group_row):
+        group = group_row[ROW_HANDLE]
+        group_row[ROW_SORT_KEY] = group.name
+        group_row[ROW_MARKUP] = self._build_group_markup(group)
+
+    def _select_handle(self, handle):
+        row = self.get_row(handle)
+        if row is not None:
+            self.widget("vm-list").get_selection().select_iter(row.iter)
+
+    def set_vm_group(self, vm, groupname):
+        """
+        Move the VM to the passed group, creating the group if needed.
+        An empty groupname puts the VM back directly under its connection
+        """
+        groupname = (groupname or "").strip()
+        if groupname == vm.get_group():
+            return
+
+        was_selected = vm == self.current_vm()
+        if groupname:
+            self._save_group(vm.conn, groupname)
+        vm.set_group(groupname)
+        self._remove_vm_row(vm)
+        self._insert_vm_row(vm.conn, vm)
+        if was_selected:
+            self._select_handle(vm)
+
+    def _ask_group_name(self, title, text, default=""):
+        dialog = Gtk.Dialog(title=title, transient_for=self.topwin, modal=True)
+        dialog.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
+        dialog.add_button(_("_OK"), Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.OK)
+
+        box = dialog.get_content_area()
+        box.set_border_width(12)
+        box.set_spacing(6)
+        label = Gtk.Label(label=text, xalign=0)
+        entry = Gtk.Entry()
+        entry.set_text(default)
+        entry.set_activates_default(True)
+        entry.get_accessible().set_name("group-name-entry")
+        box.add(label)
+        box.add(entry)
+        box.show_all()
+
+        response = dialog.run()
+        name = entry.get_text().strip()
+        dialog.destroy()
+        if response != Gtk.ResponseType.OK:
+            return None
+        return name or None
+
+    def set_vm_new_group(self, vm):
+        name = self._ask_group_name(
+            _("New Group"), _("Name of the new group for '%s':") % vm.get_name_or_title()
+        )
+        if name:
+            self.set_vm_group(vm, name)
+
+    def group_rename(self, _src):
+        group = self.current_group()
+        if not group:
+            return  # pragma: no cover
+
+        name = self._ask_group_name(_("Rename Group"), _("New name for the group:"), group.name)
+        if not name or name == group.name:
+            return
+
+        # If the name matches an existing group, this merges the two
+        conn = group.groupconn
+        self._unsave_group(conn, group.name)
+        self._save_group(conn, name)
+        for vm in group.vms[:]:
+            self.set_vm_group(vm, name)
+        self._remove_empty_group_row(group)
+        newrow = self._get_group_row(conn, name)
+        if newrow is None:
+            newrow = self._add_group_row(conn, name)
+        if newrow is not None:
+            self.widget("vm-list").get_selection().select_iter(newrow.iter)
+
+    def group_ungroup(self, _src):
+        group = self.current_group()
+        if not group:
+            return  # pragma: no cover
+        self._unsave_group(group.groupconn, group.name)
+        for vm in group.vms[:]:
+            self.set_vm_group(vm, "")
+        self._remove_empty_group_row(group)
+
+    def _remove_empty_group_row(self, group):
+        row = self.get_row(group)
+        if row is not None and not group.vms:
+            self.model.remove(row.iter)
+
+    def group_run_all(self, _src):
+        group = self.current_group()
+        if not group:
+            return  # pragma: no cover
+        for vm in group.vms:
+            if vm.is_runable():
+                vmmenu.VMActionUI.run(self, vm)
+
+    def group_shutdown_all(self, _src):
+        group = self.current_group()
+        if not group:
+            return  # pragma: no cover
+
+        vms = [vm for vm in group.vms if vm.is_stoppable()]
+        if not vms:
+            return  # pragma: no cover
+        if not self.err.yes_no(
+            _("Are you sure you want to poweroff all running VMs in group '%s'?") % group.name,
+            "\n".join(vm.get_name() for vm in vms),
+        ):
+            return
+
+        for vm in vms:
+            log.debug("Shutting down vm '%s'", vm.get_name())
+            vmmAsyncJob.simple_async_noshow(vm.shutdown, [], self, _("Error shutting down domain"))
 
     def _build_conn_hint(self, conn):
         hint = conn.get_uri()
@@ -622,6 +1020,8 @@ class vmmManager(vmmGObjectUI):
         row.insert(ROW_IS_VM_RUNNING, bool(vm) and vm.is_active())
         row.insert(ROW_COLOR, color)
         row.insert(ROW_INSPECTION_OS_ICON, os_icon)
+        row.insert(ROW_IS_GROUP, False)
+        row.insert(ROW_IN_GROUP, False)
 
         return row
 
@@ -641,6 +1041,7 @@ class vmmManager(vmmGObjectUI):
 
         for vm in conn.list_vms():
             self.vm_added(conn, vm)
+        self._add_saved_group_rows(conn)
 
     def _remove_child_rows(self, row):
         child = self.model.iter_children(row.iter)
@@ -691,6 +1092,10 @@ class vmmManager(vmmGObjectUI):
 
             desc = vm.get_description()
             row[ROW_HINT] = xmlutil.xml_escape(desc)
+
+            parent_row = row.get_parent()
+            if parent_row[ROW_IS_GROUP]:
+                self._update_group_row(parent_row)
         except Exception as e:  # pragma: no cover
             if vm.conn.support.is_libvirt_error_no_domain(e):
                 return
@@ -733,6 +1138,7 @@ class vmmManager(vmmGObjectUI):
 
         if not conn.is_active():
             self._remove_child_rows(row)
+        self._add_saved_group_rows(conn)
 
         self.conn_row_updated(conn)
         self.update_current_selection()
@@ -762,7 +1168,7 @@ class vmmManager(vmmGObjectUI):
         show_open = bool(vm)
         show_details = bool(vm)
         host_details = bool(vm or conn)
-        can_delete = bool(vm or conn)
+        can_delete = bool(vm or conn) and not self.current_group()
 
         show_run = bool(vm and vm.is_runable())
         is_paused = bool(vm and vm.is_paused())
@@ -792,6 +1198,7 @@ class vmmManager(vmmGObjectUI):
         self.widget("menu_edit_delete").set_sensitive(can_delete)
         self.widget("menu_edit_details").set_sensitive(show_details)
         self.widget("menu_host_details").set_sensitive(host_details)
+        self.widget("menu-new-group").set_sensitive(bool(self._new_group_conn()))
 
     def popup_vm_menu_key(self, widget_ignore, event):
         if Gdk.keyval_name(event.keyval) != "Menu":
@@ -814,11 +1221,19 @@ class vmmManager(vmmGObjectUI):
         return False
 
     def popup_vm_menu(self, model, _iter, event):
-        if model.iter_parent(_iter) is not None:
+        if model[_iter][ROW_IS_VM]:
             # Popup the vm menu
             vm = model[_iter][ROW_HANDLE]
             self.vmmenu.update_widget_states(vm)
             self.vmmenu.popup_at_pointer(event)
+        elif model[_iter][ROW_IS_GROUP]:
+            # Popup the group menu
+            group = model[_iter][ROW_HANDLE]
+            can_run = any(vm.is_runable() for vm in group.vms)
+            can_stop = any(vm.is_stoppable() for vm in group.vms)
+            self.groupmenu_items["run"].set_sensitive(can_run)
+            self.groupmenu_items["shutdown"].set_sensitive(can_stop)
+            self.groupmenu.popup_at_pointer(event)
         else:
             # Pop up connection menu
             conn = model[_iter][ROW_HANDLE]
@@ -826,6 +1241,7 @@ class vmmManager(vmmGObjectUI):
             conning = conn.is_connecting()
 
             self.connmenu_items["create"].set_sensitive(not disconn)
+            self.connmenu_items["newgroup"].set_sensitive(conn.is_active())
             self.connmenu_items["disconnect"].set_sensitive(not (disconn or conning))
             self.connmenu_items["connect"].set_sensitive(disconn)
             self.connmenu_items["delete"].set_sensitive(disconn)
@@ -837,8 +1253,9 @@ class vmmManager(vmmGObjectUI):
     #################
 
     def vmlist_name_sorter(self, model, iter1, iter2, ignore):
-        key1 = str(model[iter1][ROW_SORT_KEY]).lower()
-        key2 = str(model[iter2][ROW_SORT_KEY]).lower()
+        # List groups ahead of ungrouped VMs
+        key1 = (not model[iter1][ROW_IS_GROUP], str(model[iter1][ROW_SORT_KEY]).lower())
+        key2 = (not model[iter2][ROW_IS_GROUP], str(model[iter2][ROW_SORT_KEY]).lower())
         return _cmp(key1, key2)
 
     def vmlist_guest_cpu_usage_sorter(self, model, iter1, iter2, ignore):

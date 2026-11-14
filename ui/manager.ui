@@ -47,6 +47,15 @@
                       </object>
                     </child>
                     <child>
+                      <object class="GtkMenuItem" id="menu-new-group">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="label" translatable="yes">New _Group...</property>
+                        <property name="use-underline">True</property>
+                        <signal name="activate" handler="on_menu_new_group_activate" swapped="no"/>
+                      </object>
+                    </child>
+                    <child>
                       <object class="GtkSeparatorMenuItem" id="separatormenuitem1">
                         <property name="visible">True</property>
                         <property name="can-focus">False</property>
