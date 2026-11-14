@@ -34,6 +34,103 @@ CSSDATA = """
 .vmm-header {
     background-color: #0072A8
 }
+
+/* Manager window: sidebar + machine table layout. Colors are derived
+   from the theme so this follows light and dark themes */
+@define-color vmm_accent #4c6fd6;
+
+.vmm-sidebar {
+    background-color: @theme_base_color;
+    border-right: 1px solid alpha(@theme_fg_color, 0.10);
+}
+.vmm-sidebar list {
+    background-color: transparent;
+}
+.vmm-sidebar row {
+    border-radius: 8px;
+    margin: 2px 12px;
+    padding: 9px 10px;
+}
+.vmm-sidebar row:selected {
+    background-color: alpha(@vmm_accent, 0.13);
+    color: @theme_fg_color;
+}
+.vmm-sidebar .vmm-filter-list row:selected label,
+.vmm-sidebar .vmm-filter-list row:selected image {
+    color: @vmm_accent;
+    font-weight: bold;
+}
+.vmm-sidebar row.vmm-conn-row {
+    background-color: alpha(@theme_fg_color, 0.05);
+    padding: 12px 10px;
+}
+.vmm-sidebar row.vmm-conn-row:selected {
+    background-color: alpha(@vmm_accent, 0.13);
+}
+.vmm-section-label {
+    font-size: smaller;
+    font-weight: bold;
+    letter-spacing: 1.5px;
+    color: alpha(@theme_fg_color, 0.55);
+}
+.vmm-dim {
+    color: alpha(@theme_fg_color, 0.55);
+}
+.vmm-side-button {
+    margin: 4px 12px;
+    padding: 6px 10px;
+    color: alpha(@theme_fg_color, 0.65);
+}
+.vmm-main {
+    background-color: mix(@theme_base_color, @theme_bg_color, 0.45);
+}
+.vmm-title {
+    font-size: 20pt;
+    font-weight: 800;
+}
+.vmm-main toolbar {
+    background: none;
+    border: none;
+    padding: 0;
+}
+button.vmm-create {
+    background-image: none;
+    background-color: @vmm_accent;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-weight: bold;
+    text-shadow: none;
+    box-shadow: none;
+}
+button.vmm-create:hover {
+    background-color: shade(@vmm_accent, 1.1);
+}
+button.vmm-create:disabled {
+    background-color: alpha(@vmm_accent, 0.4);
+}
+.vmm-card {
+    border: 1px solid alpha(@theme_fg_color, 0.12);
+    background-color: @theme_base_color;
+}
+treeview.vmm-vmlist {
+    border-top-color: alpha(@theme_fg_color, 0.09);
+}
+treeview.vmm-vmlist:selected {
+    background-color: alpha(@vmm_accent, 0.13);
+    color: @theme_fg_color;
+}
+treeview.vmm-vmlist header button {
+    background-image: none;
+    background-color: @theme_base_color;
+    border-width: 0 0 1px 0;
+    border-color: alpha(@theme_fg_color, 0.10);
+    box-shadow: none;
+    padding: 10px 12px;
+    font-weight: normal;
+    color: alpha(@theme_fg_color, 0.60);
+}
 """
 
 

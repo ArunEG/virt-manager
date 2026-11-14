@@ -3,13 +3,22 @@
 # This work is licensed under the GNU GPLv2 or later.
 # See the COPYING file in the top-level directory.
 
+import math
+
+from gi.repository import Gdk
 from gi.repository import GObject
 from gi.repository import Gtk
+from gi.repository import Pango
+from gi.repository import PangoCairo
 
 # pylint: disable=arguments-differ
 # Newer pylint can detect, but warns that overridden arguments are wrong
 
 BASECOLOR = Gtk.StyleContext().lookup_color("theme_base_color")[1]
+
+# Accent color shared by the manager list renderers. Keep in sync with
+# vmm_accent in config.py CSSDATA
+ACCENT_RGB = (0.298, 0.435, 0.839)
 
 
 def rect_print(name, rect):  # pragma: no cover
@@ -81,6 +90,217 @@ def draw_fill(cairo_ct, x, y, w, h, points, taper=False):
 
     # Paint the fill
     cairo_ct.fill()
+
+
+def _rounded_rect(cr, x, y, w, h, radius):
+    radius = min(radius, h / 2, w / 2)
+    cr.new_sub_path()
+    cr.arc(x + w - radius, y + radius, radius, -math.pi / 2, 0)
+    cr.arc(x + w - radius, y + h - radius, radius, 0, math.pi / 2)
+    cr.arc(x + radius, y + h - radius, radius, math.pi / 2, math.pi)
+    cr.arc(x + radius, y + radius, radius, math.pi, 3 * math.pi / 2)
+    cr.close_path()
+
+
+def _parse_rgb(color, default=(0.5, 0.5, 0.5)):
+    rgba = Gdk.RGBA()
+    if not color or not rgba.parse(color):
+        return default
+    return (rgba.red, rgba.green, rgba.blue)
+
+
+class _SimpleCellRenderer(Gtk.CellRenderer):
+    """
+    Base for the small custom drawn manager list cells. Subclasses list
+    their properties in __gproperties__ and implement _size and do_render
+    """
+
+    def do_get_property(self, param_spec):  # pragma: no cover
+        return getattr(self, param_spec.name.replace("-", "_"))
+
+    def do_set_property(self, param_spec, value):
+        setattr(self, param_spec.name.replace("-", "_"), value)
+
+    def _size(self, widget):
+        raise NotImplementedError()
+
+    def do_get_size(self, widget, cell_area=None):
+        ignore = cell_area
+        width, height = self._size(widget)
+        xpad = self.get_property("xpad")
+        ypad = self.get_property("ypad")
+        return (0, 0, width + xpad * 2, height + ypad * 2)
+
+    def do_get_preferred_width(self, widget):
+        width = self.do_get_size(widget)[2]
+        return (width, width)
+
+    def do_get_preferred_height(self, widget):
+        height = self.do_get_size(widget)[3]
+        return (height, height)
+
+
+class CellRendererIconTile(_SimpleCellRenderer):
+    """
+    Symbolic icon centered on a soft rounded tile
+    """
+
+    __gproperties__ = {
+        "icon-name": (str, "Icon name", "Symbolic icon name", None, GObject.ParamFlags.READWRITE),
+    }
+    TILE_SIZE = 34
+    ICON_SIZE = 16
+
+    def __init__(self):
+        Gtk.CellRenderer.__init__(self)
+        self.icon_name = None
+
+    def _size(self, widget):
+        return self.TILE_SIZE, self.TILE_SIZE
+
+    def do_render(self, cr, widget, background_area, cell_area, flags):
+        ignore = background_area
+        ignore = flags
+        x = cell_area.x + self.get_property("xpad")
+        y = cell_area.y + (cell_area.height - self.TILE_SIZE) / 2
+
+        context = widget.get_style_context()
+        fg = context.get_color(Gtk.StateFlags.NORMAL)
+        _rounded_rect(cr, x + 0.5, y + 0.5, self.TILE_SIZE - 1, self.TILE_SIZE - 1, 8)
+        cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.06)
+        cr.fill_preserve()
+        cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.10)
+        cr.set_line_width(1)
+        cr.stroke()
+
+        if not self.icon_name:
+            return  # pragma: no cover
+        info = Gtk.IconTheme.get_default().lookup_icon(
+            self.icon_name, self.ICON_SIZE, Gtk.IconLookupFlags.FORCE_SIZE
+        )
+        if not info:
+            return  # pragma: no cover
+        pixbuf = info.load_symbolic(Gdk.RGBA(fg.red, fg.green, fg.blue, 0.65))[0]
+        offset = (self.TILE_SIZE - self.ICON_SIZE) / 2
+        Gdk.cairo_set_source_pixbuf(cr, pixbuf, x + offset, y + offset)
+        cr.paint()
+
+
+class CellRendererStatusPill(_SimpleCellRenderer):
+    """
+    Status text with a colored dot, on a rounded tinted background
+    """
+
+    __gproperties__ = {
+        "text": (str, "Text", "Status text", None, GObject.ParamFlags.READWRITE),
+        "color": (str, "Color", "Status color", None, GObject.ParamFlags.READWRITE),
+    }
+    HPAD = 9
+    VPAD = 4
+    DOT = 7
+    DOT_GAP = 6
+
+    def __init__(self):
+        Gtk.CellRenderer.__init__(self)
+        self.text = None
+        self.color = None
+
+    def _layout(self, widget):
+        layout = widget.create_pango_layout(self.text or "")
+        desc = widget.get_style_context().get_font(Gtk.StateFlags.NORMAL).copy()
+        desc.set_size(int(desc.get_size() * 0.9))
+        desc.set_weight(Pango.Weight.MEDIUM)
+        layout.set_font_description(desc)
+        return layout
+
+    def _size(self, widget):
+        width, height = self._layout(widget).get_pixel_size()
+        return (width + self.HPAD * 2 + self.DOT + self.DOT_GAP, height + self.VPAD * 2)
+
+    def do_render(self, cr, widget, background_area, cell_area, flags):
+        ignore = background_area
+        ignore = flags
+        if not self.text:
+            return  # pragma: no cover
+
+        layout = self._layout(widget)
+        text_w, text_h = layout.get_pixel_size()
+        width, height = self._size(widget)
+        x = cell_area.x + self.get_property("xpad")
+        y = cell_area.y + (cell_area.height - height) / 2
+        rgb = _parse_rgb(self.color)
+
+        _rounded_rect(cr, x, y, width, height, 6)
+        cr.set_source_rgba(*rgb, 0.14)
+        cr.fill()
+
+        cr.set_source_rgb(*rgb)
+        cr.arc(x + self.HPAD + self.DOT / 2, y + height / 2, self.DOT / 2, 0, 2 * math.pi)
+        cr.fill()
+
+        # Darken the status color a little so the text stays readable
+        cr.set_source_rgb(*[c * 0.75 for c in rgb])
+        cr.move_to(x + self.HPAD + self.DOT + self.DOT_GAP, y + (height - text_h) / 2)
+        PangoCairo.show_layout(cr, layout)
+        ignore = text_w
+
+
+class CellRendererMemBar(_SimpleCellRenderer):
+    """
+    Memory size text with a thin usage bar underneath. The bar is only
+    drawn when fraction is positive
+    """
+
+    __gproperties__ = {
+        "text": (str, "Text", "Memory text", None, GObject.ParamFlags.READWRITE),
+        "fraction": (
+            float,
+            "Fraction",
+            "Used fraction",
+            -1.0,
+            1.0,
+            0.0,
+            GObject.ParamFlags.READWRITE,
+        ),
+    }
+    BAR_WIDTH = 96
+    BAR_HEIGHT = 4
+    BAR_GAP = 5
+
+    def __init__(self):
+        Gtk.CellRenderer.__init__(self)
+        self.text = None
+        self.fraction = 0.0
+
+    def _size(self, widget):
+        height = widget.create_pango_layout("0").get_pixel_size()[1]
+        return (self.BAR_WIDTH, height + self.BAR_GAP + self.BAR_HEIGHT)
+
+    def do_render(self, cr, widget, background_area, cell_area, flags):
+        ignore = background_area
+        ignore = flags
+        layout = widget.create_pango_layout(self.text or "")
+        text_h = layout.get_pixel_size()[1]
+        has_bar = self.fraction > 0
+        height = text_h + (has_bar and (self.BAR_GAP + self.BAR_HEIGHT) or 0)
+        x = cell_area.x + self.get_property("xpad")
+        y = cell_area.y + (cell_area.height - height) / 2
+
+        fg = widget.get_style_context().get_color(Gtk.StateFlags.NORMAL)
+        cr.set_source_rgba(fg.red, fg.green, fg.blue, fg.alpha)
+        cr.move_to(x, y)
+        PangoCairo.show_layout(cr, layout)
+        if not has_bar:
+            return
+
+        bar_y = y + text_h + self.BAR_GAP
+        _rounded_rect(cr, x, bar_y, self.BAR_WIDTH, self.BAR_HEIGHT, 2)
+        cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.10)
+        cr.fill()
+        fill_w = max(self.BAR_HEIGHT, self.BAR_WIDTH * min(1.0, self.fraction))
+        _rounded_rect(cr, x, bar_y, fill_w, self.BAR_HEIGHT, 2)
+        cr.set_source_rgb(*ACCENT_RGB)
+        cr.fill()
 
 
 class CellRendererSparkline(Gtk.CellRenderer):
@@ -157,29 +377,8 @@ class CellRendererSparkline(Gtk.CellRenderer):
             cell_area.x += xalign_space
             graph_x += xalign_space
 
-        cr.set_line_width(3)
         # 1 == LINE_CAP_ROUND
         cr.set_line_cap(1)
-
-        # Draw gray graph border
-        cr.set_source_rgb(0.8828125, 0.8671875, 0.8671875)
-        cr.rectangle(
-            cell_area.x + BORDER_PADDING,
-            cell_area.y + BORDER_PADDING,
-            border_width,
-            cell_area.height - (BORDER_PADDING * 2),
-        )
-        cr.stroke()
-
-        # Fill in basecolor box inside graph outline
-        cr.set_source_rgb(BASECOLOR.red, BASECOLOR.green, BASECOLOR.blue)
-        cr.rectangle(
-            cell_area.x + BORDER_PADDING,
-            cell_area.y + BORDER_PADDING,
-            border_width,
-            cell_area.height - (BORDER_PADDING * 2),
-        )
-        cr.fill()
 
         def get_y(index):
             baseline_y = graph_y + graph_height
@@ -207,13 +406,13 @@ class CellRendererSparkline(Gtk.CellRenderer):
         cell_area.width = graph_width
         cell_area.height = graph_height
 
-        # Set color to dark blue for the actual sparkline
-        cr.set_line_width(2)
-        cr.set_source_rgb(0.421875, 0.640625, 0.73046875)
+        # Accent color for the actual sparkline
+        cr.set_line_width(1.5)
+        cr.set_source_rgb(*ACCENT_RGB)
         draw_line(cr, cell_area.y, cell_area.height, points)
 
-        # Set color to light blue for the fill
-        cr.set_source_rgba(0.71484375, 0.84765625, 0.89453125, 0.5)
+        # Faint accent wash for the fill
+        cr.set_source_rgba(*ACCENT_RGB, 0.10)
 
         draw_fill(cr, cell_area.x, cell_area.y, cell_area.width, cell_area.height, points)
         return
