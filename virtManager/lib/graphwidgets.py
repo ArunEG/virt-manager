@@ -148,7 +148,7 @@ class CellRendererIconTile(_SimpleCellRenderer):
     __gproperties__ = {
         "icon-name": (str, "Icon name", "Symbolic icon name", None, GObject.ParamFlags.READWRITE),
     }
-    TILE_SIZE = 34
+    TILE_SIZE = 28
     ICON_SIZE = 16
 
     def __init__(self):

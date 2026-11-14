@@ -311,6 +311,7 @@ class vmmGObjectUI(vmmGObject):
             self.builder = Gtk.Builder()
             self.builder.set_translation_domain("virt-manager")
             self.builder.add_from_file(uifile)
+            self._init_design_classes()
 
             if not topwin:
                 self.topwin = self.widget(windowname)
@@ -322,6 +323,39 @@ class vmmGObjectUI(vmmGObject):
             self.topwin = topwin
 
         self._err = None
+
+    # Widgets that get a style class from the app CSS in config.py, by
+    # their glade id: the main action of each window, destructive
+    # actions, and the lists that act as navigation sidebars
+    _DESIGN_CLASSES = {
+        "suggested-action": [
+            "connect",
+            "create-forward",
+            "create-finish",
+            "config-apply",
+            "clone-ok",
+            "change-storage-ok",
+            "connectauth-ok",
+            "pool-finish",
+            "vol-create",
+            "net-apply",
+            "pool-apply",
+            "choose-volume",
+            "migrate-finish",
+            "snapshot-new-ok",
+            "snapshot-apply",
+        ],
+        "destructive-action": ["delete-ok"],
+        "vmm-navlist": ["hw-list", "pool-list", "net-list", "snapshot-list"],
+        "vmm-console": ["console-pages"],
+    }
+
+    def _init_design_classes(self):
+        for classname, widgetnames in self._DESIGN_CLASSES.items():
+            for widgetname in widgetnames:
+                widget = self.builder.get_object(widgetname)
+                if widget:
+                    widget.get_style_context().add_class(classname)
 
     def _get_err(self):
         if self._err is None:

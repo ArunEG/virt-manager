@@ -4,6 +4,10 @@
 # This work is licensed under the GNU GPLv2 or later.
 # See the COPYING file in the top-level directory.
 
+import math
+
+import cairo
+
 from gi.repository import Gtk
 from gi.repository import Gdk
 from gi.repository import Pango
@@ -33,7 +37,13 @@ GRAPH_LEN = 40
     ROW_HINT,
     ROW_STATUS_TEXT,
     ROW_STATUS_COLOR,
-) = range(6)
+    ROW_IS_VM,
+    ROW_GROUP,
+    ROW_BG,
+) = range(9)
+
+# Tint of the group heading rows. Translucent, so it suits any theme
+BG_GROUP_HEADING = "rgba(128,128,128,0.09)"
 
 # Sort ids for the VM list columns
 (
@@ -47,12 +57,11 @@ GRAPH_LEN = 40
     COL_MEMSIZE,
 ) = range(8)
 
-# Status colors for the VM list. Mid tones, so they are readable on
-# both light and dark themes
-COLOR_RUNNING = "#2ea043"
-COLOR_PAUSED = "#d4a017"
-COLOR_ERROR = "#e5534b"
-COLOR_OFF = "#7d8590"
+COLOR_RUNNING = uiutil.COLOR_RUNNING
+COLOR_PAUSED = uiutil.COLOR_PAUSED
+COLOR_OFF = uiutil.COLOR_OFF
+_dot_markup = uiutil.dot_markup
+_vm_status_color = uiutil.vm_status_color
 
 # Sidebar filters: which VMs of the current connection are listed
 FILTER_ALL = ("all", None)
@@ -69,20 +78,6 @@ def _cmp(a, b):
     return (a > b) - (a < b)
 
 
-def _dot_markup(color, text):
-    return "<span foreground='%s'>●</span> %s" % (color, xmlutil.xml_escape(text))
-
-
-def _vm_status_color(vm):
-    if vm.is_crashed():
-        return COLOR_ERROR
-    if vm.is_paused():
-        return COLOR_PAUSED
-    if vm.is_active():
-        return COLOR_RUNNING
-    return COLOR_OFF
-
-
 def _vm_memory_kib(vm):
     """
     Memory the VM is currently using: the polled value if memory stats
@@ -95,7 +90,7 @@ def _vm_memory_kib(vm):
 
 def _pretty_memory(kib):
     if kib >= 1024 * 1024:
-        return "%.1f GB" % (kib / (1024.0 * 1024.0))
+        return "%s GB" % ("%.1f" % (kib / (1024.0 * 1024.0))).replace(".0", "")
     return "%d MB" % (kib / 1024.0)
 
 
@@ -214,6 +209,13 @@ class vmmManager(vmmGObjectUI):
         self._title_label = None
         self._summary_label = None
         self._create_button = None
+        self._group_switch = None
+        self._group_toggle = None
+        self._toggle_off_path = None
+        self._detail_revealer = None
+        self._detail_name = None
+        self._detail_buttons = None
+        self._detail_values = None
 
         # There seem to be ref counting issues with calling
         # list.get_column, so avoid it
@@ -331,6 +333,10 @@ class vmmManager(vmmGObjectUI):
             return label
 
         # Sidebar
+        # Everything sits on one painted backdrop
+        hbox = Gtk.Box()
+        hbox.connect("draw", self._backdrop_draw_cb)
+
         sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         sidebar.get_style_context().add_class("vmm-sidebar")
         sidebar.set_size_request(240, -1)
@@ -373,7 +379,6 @@ class vmmManager(vmmGObjectUI):
         # Main panel: title, summary and actions above the machine table
         main = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         main.get_style_context().add_class("vmm-main")
-        main.set_border_width(24)
 
         self._title_label = Gtk.Label(xalign=0)
         self._title_label.get_style_context().add_class("vmm-title")
@@ -382,6 +387,19 @@ class vmmManager(vmmGObjectUI):
         titles = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         titles.add(self._title_label)
         titles.add(self._summary_label)
+
+        # Toggle to arrange the 'All machines' list under group headings
+        self._group_switch = Gtk.Switch()
+        self._group_switch.set_active(self.config.get_manager_group_machines())
+        self._group_switch.set_valign(Gtk.Align.CENTER)
+        self._group_switch.get_accessible().set_name("group-machines-switch")
+        self._group_switch.connect("notify::active", self._group_switch_cb)
+        self._group_toggle = Gtk.Box(spacing=8)
+        self._group_toggle.get_style_context().add_class("vmm-group-toggle")
+        self._group_toggle.add(Gtk.Label(label=_("Group by group")))
+        self._group_toggle.add(self._group_switch)
+        self._group_toggle.set_halign(Gtk.Align.END)
+        self._group_toggle.set_no_show_all(True)
 
         self._create_button = Gtk.Button()
         self._create_button.get_style_context().add_class("vmm-create")
@@ -409,15 +427,239 @@ class vmmManager(vmmGObjectUI):
 
         scroll.set_shadow_type(Gtk.ShadowType.NONE)
         scroll.get_style_context().add_class("vmm-card")
+        scroll.connect_after("draw", self._card_draw_cb, hbox)
+        self.topwin.connect("button-press-event", self._window_button_press_cb)
+        for child in self._group_toggle.get_children():
+            child.show()
         main.pack_start(header, False, False, 0)
+        main.pack_start(self._group_toggle, False, False, 0)
         main.pack_start(scroll, True, True, 0)
+        main.pack_start(self._build_detail_card(), False, False, 0)
 
-        hbox = Gtk.Box()
         hbox.pack_start(sidebar, False, False, 0)
         hbox.pack_start(main, True, True, 0)
         hbox.show_all()
         notebook.insert_page(hbox, None, 0)
         notebook.set_current_page(0)
+
+    def _build_detail_card(self):
+        """
+        Card under the machine table that slides open for the selected
+        VM, with its key facts and the most common actions
+        """
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        card.get_style_context().add_class("vmm-detail-card")
+
+        self._detail_name = Gtk.Label(xalign=0)
+        self._detail_name.get_style_context().add_class("vmm-detail-name")
+        self._detail_name.set_ellipsize(Pango.EllipsizeMode.END)
+
+        def make_button(text, cb, icon_name=None, primary=False):
+            button = Gtk.Button()
+            box = Gtk.Box(spacing=8)
+            if icon_name:
+                box.add(Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU))
+            label = Gtk.Label(label=text)
+            box.add(label)
+            button.add(box)
+            button.vmm_label = label
+            if primary:
+                button.get_style_context().add_class("suggested-action")
+            button.connect("clicked", cb)
+            return button
+
+        self._detail_buttons = {
+            "console": make_button(
+                _("Console"), self.show_vm, "utilities-terminal-symbolic", primary=True
+            ),
+            "details": make_button(
+                _("Details"), self._detail_details_cb, "emblem-system-symbolic"
+            ),
+            "run": make_button(_("Run"), self.start_vm),
+            "pause": make_button(_("Pause"), self._detail_pause_cb),
+            "shutdown": make_button(_("Shut down"), self.poweroff_vm),
+        }
+
+        top = Gtk.Box(spacing=10)
+        top.add(Gtk.Image.new_from_icon_name("computer-symbolic", Gtk.IconSize.LARGE_TOOLBAR))
+        top.pack_start(self._detail_name, True, True, 0)
+        for name in ["shutdown", "pause", "run", "details", "console"]:
+            top.pack_end(self._detail_buttons[name], False, False, 0)
+
+        facts = Gtk.Box(homogeneous=True, spacing=24)
+        self._detail_values = {}
+        for key, title in [
+            ("vcpus", _("Virtual CPUs")),
+            ("memory", _("Allocated memory")),
+            ("group", _("Group")),
+            ("status", _("Status")),
+        ]:
+            title_label = Gtk.Label(label=title, xalign=0)
+            title_label.get_style_context().add_class("vmm-dim")
+            value_label = Gtk.Label(xalign=0)
+            value_label.set_ellipsize(Pango.EllipsizeMode.END)
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            box.add(title_label)
+            box.add(value_label)
+            facts.add(box)
+            self._detail_values[key] = value_label
+
+        card.add(top)
+        card.add(Gtk.Separator())
+        card.add(facts)
+
+        self._detail_revealer = Gtk.Revealer()
+        self._detail_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_UP)
+        self._detail_revealer.add(card)
+        return self._detail_revealer
+
+    def _detail_details_cb(self, _src):
+        from .vmwindow import vmmVMWindow
+
+        vm = self.current_vm()
+        if vm:
+            vmmVMWindow.get_instance(self, vm).show_details_page()
+
+    def _detail_pause_cb(self, _src):
+        vm = self.current_vm()
+        if not vm:
+            return  # pragma: no cover
+        if vm.is_paused():
+            vmmenu.VMActionUI.resume(self, vm)
+        else:
+            vmmenu.VMActionUI.suspend(self, vm)
+
+    def _refresh_detail_card(self, vm):
+        self._detail_revealer.set_reveal_child(bool(vm))
+        if not vm:
+            return
+
+        xmlobj = vm.get_xmlobj()
+        vcpus = xmlobj.vcpus or 1
+        self._detail_name.set_text(vm.get_name_or_title())
+        self._detail_values["vcpus"].set_text(ngettext("%d vCPU", "%d vCPUs", vcpus) % vcpus)
+        self._detail_values["memory"].set_text(_pretty_memory(xmlobj.memory or 0))
+        self._detail_values["group"].set_text(vm.get_group() or _("Ungrouped"))
+        self._detail_values["status"].set_markup(
+            _dot_markup(_vm_status_color(vm), vm.run_status())
+        )
+
+        paused = vm.is_paused()
+        can_pause = paused and vm.is_unpauseable() or vm.is_pauseable()
+        buttons = self._detail_buttons
+        buttons["run"].set_visible(vm.is_runable())
+        buttons["pause"].set_visible(bool(can_pause))
+        buttons["pause"].vmm_label.set_text(paused and _("Resume") or _("Pause"))
+        buttons["shutdown"].set_visible(vm.is_stoppable())
+
+    def _paint_backdrop(self, widget, cr, width, height):
+        """
+        Paint the main panel background: the theme's window color with a
+        soft light blue glow and a few layered curves on top. Everything
+        is translucent, so it sits on light and dark themes alike
+        """
+        context = widget.get_style_context()
+        base = context.lookup_color("theme_base_color")[1]
+        bg = context.lookup_color("theme_bg_color")[1]
+        mix = 0.45
+        cr.set_source_rgb(
+            base.red + (bg.red - base.red) * mix,
+            base.green + (bg.green - base.green) * mix,
+            base.blue + (bg.blue - base.blue) * mix,
+        )
+        cr.paint()
+
+        blue = (0.33, 0.58, 0.98)
+        sky = (0.36, 0.78, 0.98)
+        span = max(width, height)
+
+        # Glow from the top right corner, and a fainter one bottom left
+        for cx, cy, radius, color, alpha in [
+            (width, 0, span * 0.75, blue, 0.20),
+            (0, height, span * 0.60, sky, 0.14),
+        ]:
+            glow = cairo.RadialGradient(cx, cy, 0, cx, cy, radius)
+            glow.add_color_stop_rgba(0, *color, alpha)
+            glow.add_color_stop_rgba(1, *color, 0)
+            cr.set_source(glow)
+            cr.paint()
+
+        # Layered curves sweeping across the lower part of the panel
+        for start, lift, color, alpha in [
+            (0.52, 0.16, sky, 0.07),
+            (0.66, 0.13, blue, 0.07),
+            (0.80, 0.10, sky, 0.08),
+        ]:
+            y0 = height * start
+            amp = height * lift
+            cr.move_to(0, y0 + amp * 0.4)
+            cr.curve_to(width * 0.30, y0 - amp, width * 0.62, y0 + amp, width, y0 - amp * 0.6)
+            cr.line_to(width, height)
+            cr.line_to(0, height)
+            cr.close_path()
+            cr.set_source_rgba(*color, alpha)
+            cr.fill()
+
+        # And one sweeping down from the top edge
+        cr.move_to(width * 0.35, 0)
+        cr.curve_to(width * 0.55, height * 0.20, width * 0.80, height * 0.02, width, height * 0.22)
+        cr.line_to(width, 0)
+        cr.close_path()
+        cr.set_source_rgba(*blue, 0.07)
+        cr.fill()
+
+    def _backdrop_draw_cb(self, widget, cr):
+        width = widget.get_allocated_width()
+        height = widget.get_allocated_height()
+        cr.save()
+        cr.rectangle(0, 0, width, height)
+        cr.clip()
+        self._paint_backdrop(widget, cr, width, height)
+        cr.restore()
+        return False
+
+    def _card_draw_cb(self, card, cr, backdrop):
+        """
+        Round the corners of the machine table. GTK3 can't clip children
+        to a rounded border, so paint over the corners with the color
+        behind the card, then draw the rounded outline on top
+        """
+        CARD_RADIUS = 10
+        width = card.get_allocated_width()
+        height = card.get_allocated_height()
+
+        def rounded_path():
+            rad = CARD_RADIUS
+            right = width - rad - 0.5
+            bottom = height - rad - 0.5
+            cr.new_sub_path()
+            cr.arc(right, rad + 0.5, rad, -math.pi / 2, 0)
+            cr.arc(right, bottom, rad, 0, math.pi / 2)
+            cr.arc(rad + 0.5, bottom, rad, math.pi / 2, math.pi)
+            cr.arc(rad + 0.5, rad + 0.5, rad, math.pi, 3 * math.pi / 2)
+            cr.close_path()
+
+        context = backdrop.get_style_context()
+        fg = context.get_color(context.get_state())
+
+        # Repaint the backdrop over the four corner slivers
+        cr.save()
+        cr.set_fill_rule(cairo.FillRule.EVEN_ODD)
+        cr.rectangle(0, 0, width, height)
+        rounded_path()
+        cr.clip()
+        offset = card.translate_coordinates(backdrop, 0, 0)
+        cr.translate(-offset[0], -offset[1])
+        self._paint_backdrop(
+            backdrop, cr, backdrop.get_allocated_width(), backdrop.get_allocated_height()
+        )
+        cr.restore()
+
+        rounded_path()
+        cr.set_line_width(1)
+        cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.14)
+        cr.stroke()
+        return False
 
     def init_stats(self):
         self.add_gsettings_handle(
@@ -471,9 +713,18 @@ class vmmManager(vmmGObjectUI):
 
     def init_toolbar(self):
         self.widget("vm-new").set_icon_name("vm_new")
-        self.widget("vm-open").set_icon_name("icon_console")
+        self.widget("vm-open").set_icon_name("video-display-symbolic")
+        self.widget("vm-run").set_icon_name("media-playback-start-symbolic")
+        self.widget("vm-pause").set_icon_name("media-playback-pause-symbolic")
 
-        self.widget("vm-shutdown").set_icon_name("system-shutdown")
+        self.widget("vm-shutdown").set_icon_name("system-shutdown-symbolic")
+        for widgetname, classname in [
+            ("vm-open", "vmm-act-open"),
+            ("vm-run", "vmm-act-run"),
+            ("vm-pause", "vmm-act-pause"),
+            ("vm-shutdown", "vmm-act-stop"),
+        ]:
+            self.widget(widgetname).get_style_context().add_class(classname)
         self.widget("vm-shutdown").set_menu(self.shutdownmenu)
 
         tool = self.widget("vm-toolbar")
@@ -535,12 +786,22 @@ class vmmManager(vmmGObjectUI):
         rowtypes.insert(ROW_HINT, str)  # row tooltip
         rowtypes.insert(ROW_STATUS_TEXT, str)  # status pill text
         rowtypes.insert(ROW_STATUS_COLOR, str)  # status pill color
+        rowtypes.insert(ROW_IS_VM, bool)  # False for group heading rows
+        rowtypes.insert(ROW_GROUP, str)  # group the row is listed under
+        rowtypes.insert(ROW_BG, str)  # row background tint
 
         model = Gtk.ListStore(*rowtypes)
         vmlist.set_model(model)
         vmlist.set_tooltip_column(ROW_HINT)
         vmlist.set_headers_visible(True)
         vmlist.set_grid_lines(Gtk.TreeViewGridLines.HORIZONTAL)
+
+        # Group heading rows can't be selected
+        def _select_cb(_selection, _model, path, _current):
+            return _model[path][ROW_IS_VM]
+
+        vmlist.get_selection().set_select_function(_select_cb)
+        vmlist.connect("button-release-event", self._vm_list_button_release_cb)
 
         nameCol = Gtk.TreeViewColumn(_("Machine name"))
         nameCol.set_expand(True)
@@ -552,13 +813,18 @@ class vmmManager(vmmGObjectUI):
         tile = CellRendererIconTile()
         tile.set_property("icon-name", "computer-symbolic")
         tile.set_property("xpad", 8)
-        tile.set_property("ypad", 11)
+        tile.set_property("ypad", 5)
         nameCol.pack_start(tile, False)
+        nameCol.add_attribute(tile, "visible", ROW_IS_VM)
+        nameCol.add_attribute(tile, "cell-background", ROW_BG)
 
         name_txt = Gtk.CellRendererText()
         name_txt.set_property("ellipsize", Pango.EllipsizeMode.END)
         nameCol.pack_start(name_txt, True)
+        name_txt.set_property("ypad", 4)
+        name_txt.set_property("xpad", 8)
         nameCol.add_attribute(name_txt, "markup", ROW_MARKUP)
+        nameCol.add_attribute(name_txt, "cell-background", ROW_BG)
 
         # Unused filler, kept so the stats toggling code can treat all
         # columns alike
@@ -574,6 +840,7 @@ class vmmManager(vmmGObjectUI):
         statusCol.pack_start(pill, False)
         statusCol.add_attribute(pill, "text", ROW_STATUS_TEXT)
         statusCol.add_attribute(pill, "color", ROW_STATUS_COLOR)
+        statusCol.add_attribute(pill, "cell-background", ROW_BG)
         vmlist.append_column(statusCol)
 
         def make_stats_column(title, colnum, textfunc=None):
@@ -586,13 +853,16 @@ class vmmManager(vmmGObjectUI):
                 txt.set_property("width-chars", 5)
                 col.pack_start(txt, False)
                 col.set_cell_data_func(txt, textfunc, None)
+                col.add_attribute(txt, "cell-background", ROW_BG)
 
             img = CellRendererSparkline()
             img.set_property("xpad", 6)
-            img.set_property("ypad", 16)
+            img.set_property("ypad", 9)
             img.set_property("reversed", True)
             img.set_property("xalign", 0)
             col.pack_start(img, True)
+            col.add_attribute(img, "visible", ROW_IS_VM)
+            col.add_attribute(img, "cell-background", ROW_BG)
 
             col.set_sort_column_id(colnum)
             vmlist.append_column(col)
@@ -608,24 +878,50 @@ class vmmManager(vmmGObjectUI):
         membar.set_property("xpad", 8)
         memsizeCol.pack_start(membar, False)
         memsizeCol.set_cell_data_func(membar, self._memsize_cb, None)
+        memsizeCol.add_attribute(membar, "cell-background", ROW_BG)
         vmlist.append_column(memsizeCol)
 
         self.memcol = make_stats_column(_("Memory usage"), COL_MEM)
         self.diskcol = make_stats_column(_("Disk I/O"), COL_DISK)
         self.netcol = make_stats_column(_("Network I/O"), COL_NETWORK)
 
-        model.set_sort_func(COL_NAME, self.vmlist_name_sorter)
-        model.set_sort_func(COL_STATUS, self.vmlist_status_sorter)
-        model.set_sort_func(COL_MEMSIZE, self.vmlist_memsize_sorter)
-        model.set_sort_func(COL_GUEST_CPU, self.vmlist_guest_cpu_usage_sorter)
-        model.set_sort_func(COL_HOST_CPU, self.vmlist_host_cpu_usage_sorter)
-        model.set_sort_func(COL_MEM, self.vmlist_memory_usage_sorter)
-        model.set_sort_func(COL_DISK, self.vmlist_disk_io_sorter)
-        model.set_sort_func(COL_NETWORK, self.vmlist_network_usage_sorter)
+        for colnum, sorter in [
+            (COL_NAME, self.vmlist_name_sorter),
+            (COL_STATUS, self.vmlist_status_sorter),
+            (COL_MEMSIZE, self.vmlist_memsize_sorter),
+            (COL_GUEST_CPU, self.vmlist_guest_cpu_usage_sorter),
+            (COL_HOST_CPU, self.vmlist_host_cpu_usage_sorter),
+            (COL_MEM, self.vmlist_memory_usage_sorter),
+            (COL_DISK, self.vmlist_disk_io_sorter),
+            (COL_NETWORK, self.vmlist_network_usage_sorter),
+        ]:
+            model.set_sort_func(colnum, self._grouped_sorter, sorter)
         model.set_sort_column_id(COL_NAME, Gtk.SortType.ASCENDING)
+
+    def _grouped_sorter(self, model, iter1, iter2, sorter):
+        """
+        Sort wrapper that keeps rows under their group heading: rows are
+        ordered by group first, with the heading on top and the ungrouped
+        machines last, and only then by the clicked column
+        """
+
+        def groupkey(row):
+            return (not row[ROW_GROUP], (row[ROW_GROUP] or "").lower(), row[ROW_IS_VM])
+
+        if self._grouping_active():
+            ret = _cmp(groupkey(model[iter1]), groupkey(model[iter2]))
+            if ret:
+                # The view flips our answer for descending sorts, but the
+                # group arrangement has to stay the same either way
+                descending = model.get_sort_column_id()[1] == Gtk.SortType.DESCENDING
+                return descending and -ret or ret
+        return sorter(model, iter1, iter2, None)
 
     def _guest_cpu_text_cb(self, _col, cell, model, _iter, _data):
         vm = model[_iter][ROW_HANDLE]
+        if vm is None:
+            cell.set_property("text", "")
+            return
         text = "—"
         if vm.is_active() and self.config.get_stats_enable_cpu_poll():
             text = "%d%%" % vm.guest_cpu_time_percentage()
@@ -633,6 +929,10 @@ class vmmManager(vmmGObjectUI):
 
     def _memsize_cb(self, _col, cell, model, _iter, _data):
         vm = model[_iter][ROW_HANDLE]
+        if vm is None:
+            cell.set_property("text", "")
+            cell.set_property("fraction", 0.0)
+            return
         kib = _vm_memory_kib(vm)
         fraction = 0.0
         # Only show the usage bar when we have real polled usage numbers
@@ -672,7 +972,7 @@ class vmmManager(vmmGObjectUI):
 
     def get_row(self, vm):
         for row in self.model:
-            if row[ROW_HANDLE] == vm:
+            if row[ROW_IS_VM] and row[ROW_HANDLE] == vm:
                 return row
         return None
 
@@ -724,9 +1024,20 @@ class vmmManager(vmmGObjectUI):
     def show_vm(self, _src):
         vmmenu.VMActionUI.show(self, self.current_vm())
 
-    def row_activated(self, _src, *args):
+    def row_activated(self, _src, path, *args):
         ignore = args
-        if self.current_vm():
+        row = self.model[path]
+        if not row[ROW_IS_VM]:
+            # Group heading: jump to that group's own view
+            if row[ROW_GROUP]:
+                self._set_filter(_filter_group(row[ROW_GROUP]))
+            else:
+                self._set_filter(FILTER_UNGROUPED)
+        else:
+            # Use the activated row rather than the selection: the second
+            # click of a double click may just have unselected it
+            self._toggle_off_path = None
+            self._select_vm(row[ROW_HANDLE])
             self.show_vm(_src)
 
     def do_delete(self, ignore=None):
@@ -1147,6 +1458,50 @@ class vmmManager(vmmGObjectUI):
         row[ROW_HINT] = xmlutil.xml_escape(vm.get_description())
         row[ROW_STATUS_TEXT] = vm.run_status()
         row[ROW_STATUS_COLOR] = _vm_status_color(vm)
+        row[ROW_IS_VM] = True
+        row[ROW_GROUP] = vm.get_group()
+        row[ROW_BG] = None
+
+    def _grouping_active(self):
+        """
+        If the list is arranged under group headings: only in the 'All
+        machines' view, when the toggle is on
+        """
+        return self._filter == FILTER_ALL and self._group_switch.get_active()
+
+    def _group_switch_cb(self, src, _pspec):
+        self.config.set_manager_group_machines(src.get_active())
+        self._refresh_vm_rows()
+
+    def _refresh_heading_rows(self):
+        """
+        Rebuild the group heading rows to match the listed VMs
+        """
+        for row in list(self.model):
+            if not row[ROW_IS_VM]:
+                self.model.remove(row.iter)
+        if not self._grouping_active():
+            return
+
+        vms = [row[ROW_HANDLE] for row in self.model]
+        groupnames = self.list_group_names(self._current_conn)
+        if any(not vm.get_group() for vm in vms):
+            groupnames.append("")
+
+        for groupname in groupnames:
+            members = [vm for vm in vms if vm.get_group() == groupname]
+            nrunning = len([vm for vm in members if vm.is_active()])
+            count = ngettext("%d machine", "%d machines", len(members)) % len(members)
+            if members:
+                count += " \u00b7 " + _("%d running") % nrunning
+            markup = "<b>%s</b>   <span size='smaller' alpha='60%%'>%s</span>" % (
+                xmlutil.xml_escape(groupname or _("Ungrouped")),
+                xmlutil.xml_escape(count),
+            )
+            hint = groupname and _("Double click to show only this group") or None
+            self.model.append(
+                [None, groupname, markup, hint, None, None, False, groupname, BG_GROUP_HEADING]
+            )
 
     def _refresh_vm_rows(self):
         """
@@ -1157,15 +1512,23 @@ class vmmManager(vmmGObjectUI):
         wanted = self._filtered_vms()
 
         for row in list(self.model):
-            if row[ROW_HANDLE] not in wanted:
+            if row[ROW_IS_VM] and row[ROW_HANDLE] not in wanted:
                 self.model.remove(row.iter)
-        listed = [row[ROW_HANDLE] for row in self.model]
+        listed = [row[ROW_HANDLE] for row in self.model if row[ROW_IS_VM]]
         for vm in wanted:
             if vm in listed:
                 self._set_vm_row(self.get_row(vm), vm)
             else:
-                rowiter = self.model.append([vm, "", "", None, "", None])
+                rowiter = self.model.append([vm, "", "", None, "", None, True, "", None])
                 self._set_vm_row(self.model[rowiter], vm)
+        self._refresh_heading_rows()
+
+        # Toggling the grouping changes how rows compare without changing
+        # any row, so make the model sort again
+        colnum, order = self.model.get_sort_column_id()
+        if colnum is not None:
+            self.model.set_sort_column_id(Gtk.TREE_SORTABLE_UNSORTED_SORT_COLUMN_ID, order)
+            self.model.set_sort_column_id(colnum, order)
 
         if selected in wanted:
             self._select_vm(selected)
@@ -1195,6 +1558,9 @@ class vmmManager(vmmGObjectUI):
             ]
             summary = "      ".join(parts)
         self._summary_label.set_markup(summary)
+
+        show_toggle = bool(conn and conn.is_active()) and self._filter == FILTER_ALL
+        self._group_toggle.set_visible(show_toggle)
 
     def _refresh_all(self):
         self._refresh_filter_list()
@@ -1264,6 +1630,7 @@ class vmmManager(vmmGObjectUI):
             row = self.get_row(vm)
             if row is not None:
                 self._set_vm_row(row, vm)
+                self._refresh_heading_rows()
             self._refresh_header()
             if vm == self.current_vm():
                 self.update_current_selection()
@@ -1331,8 +1698,30 @@ class vmmManager(vmmGObjectUI):
         self.widget("menu_host_details").set_sensitive(host_details)
         self.widget("menu-new-group").set_sensitive(conn_active)
         self._create_button.set_sensitive(conn_active)
+        self._refresh_detail_card(vm)
+
+    def _unselect_vm(self):
+        """
+        Drop the VM selection, which also closes the detail card
+        """
+        self.widget("vm-list").get_selection().unselect_all()
+
+    def _window_button_press_cb(self, _src, event):
+        # Clicks that no widget handled land here: on the page background,
+        # headings and so on. Treat those as clicking away from the VM,
+        # unless they are inside the detail card itself
+        widget = Gtk.get_event_widget(event)
+        while widget is not None:
+            if widget == self._detail_revealer:
+                return False
+            widget = widget.get_parent()
+        self._unselect_vm()
+        return False
 
     def popup_vm_menu_key(self, widget_ignore, event):
+        if Gdk.keyval_name(event.keyval) == "Escape":
+            self._unselect_vm()
+            return True
         if Gdk.keyval_name(event.keyval) != "Menu":
             return False  # pragma: no cover
 
@@ -1343,19 +1732,44 @@ class vmmManager(vmmGObjectUI):
         return True
 
     def popup_vm_menu_button(self, vmlist, event):
-        if event.button != 3:
+        if event.button not in [1, 3]:
             return False
 
         tup = vmlist.get_path_at_pos(int(event.x), int(event.y))
         if tup is None:
-            return False  # pragma: no cover
+            # Click on the empty part of the table
+            self._unselect_vm()
+            return False
         path = tup[0]
+        if event.button == 1:
+            # A plain click on the already selected VM unselects it again,
+            # which closes the detail card. That happens on release, see
+            # _vm_list_button_release_cb: the press has to reach the list
+            # untouched for double click detection to keep working
+            selection = vmlist.get_selection()
+            self._toggle_off_path = None
+            if event.type == Gdk.EventType.BUTTON_PRESS and selection.path_is_selected(path):
+                self._toggle_off_path = path
+            return False
 
         self.popup_vm_menu(self.model, self.model.get_iter(path), event)
         return False
 
+    def _vm_list_button_release_cb(self, vmlist, event):
+        path = self._toggle_off_path
+        self._toggle_off_path = None
+        if event.button != 1 or path is None:
+            return False
+
+        tup = vmlist.get_path_at_pos(int(event.x), int(event.y))
+        if tup is not None and tup[0] == path:
+            vmlist.get_selection().unselect_path(path)
+        return False
+
     def popup_vm_menu(self, model, _iter, event):
         vm = model[_iter][ROW_HANDLE]
+        if vm is None:
+            return
         self.vmmenu.update_widget_states(vm)
         self.vmmenu.popup_at_pointer(event)
 
