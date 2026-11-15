@@ -43,7 +43,7 @@ def _create_testdriver_path(fn):
 
 
 def _open_storage_browser(app):
-    app.root.find("New", "push button").click()
+    app.root.find("create-vm", "push button").click()
     newvm = app.find_window("New VM")
     newvm.find_fuzzy("Local install media", "radio").click()
     newvm.find_fuzzy("Forward", "button").click()

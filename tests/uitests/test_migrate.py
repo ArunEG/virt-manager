@@ -100,6 +100,8 @@ def testMigrateConnMismatch(app):
 
     # Open dialog and confirm no conns are available
     app.manager_createconn(tests.utils.URIs.test_full)
+    # The VM list only shows the connection selected in the sidebar
+    app.manager_get_conn_cell("test testdriver.xml").click()
     mig = _open_migrate(app, "test-many-devices")
     mig.find("conn-combo").find("No usable", "menu item")
 
@@ -134,7 +136,10 @@ def testMigrateXMLEditor(app):
     win.find("Migrate", "push button").click()
     lib.utils.check(lambda: not win.showing, timeout=10)
 
+    # The migrated VM shows up under the destination connection
+    app.manager_get_conn_cell("test default").click()
     manager.find(newname, "table cell")
+    app.manager_get_conn_cell("test testdriver.xml").click()
 
     # Do standard xmleditor tests
     win = _open_migrate(app, vmname)

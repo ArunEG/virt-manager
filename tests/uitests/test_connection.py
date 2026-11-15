@@ -32,7 +32,7 @@ def testConnectionConnCrash(app):
     app.open(extra_opts=["--test-options=conn-crash", "--test-options=short-poll"])
     manager = app.topwin
 
-    manager.find(r"^test testdriver.xml - Not Connected", "table cell")
+    manager.find(r"^test testdriver.xml - Not Connected", "list item")
     lib.utils.check(lambda: manager.active)
 
 
@@ -67,7 +67,7 @@ def testConnectionOpenauth(app):
     dialog.find("OK", "push button").click()
     lib.utils.check(lambda: not dialog.showing)
     manager = app.find_window("Virtual Machine Manager")
-    manager.find("^test testdriver.xml$", "table cell")
+    manager.find("^test testdriver.xml$", "list item")
 
     # Disconnect and reconnect to trigger it again
     def _retrigger_connection():
@@ -82,14 +82,14 @@ def testConnectionOpenauth(app):
     app.rawinput.pressKey("Enter")
     lib.utils.check(lambda: not dialog.showing)
     manager = app.find_window("Virtual Machine Manager")
-    manager.find("^test testdriver.xml$", "table cell")
+    manager.find("^test testdriver.xml$", "list item")
 
     _retrigger_connection()
     dialog = app.root.find("Authentication required")
     dialog.find("Cancel", "push button").click()
     lib.utils.check(lambda: not dialog.showing)
     app.click_alert_button("Unable to connect", "Close")
-    manager.find("test testdriver.xml - Not Connected", "table cell")
+    manager.find("test testdriver.xml - Not Connected", "list item")
 
 
 def testConnectionSessionError(app):

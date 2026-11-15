@@ -6,11 +6,14 @@
 
 from gi.repository import Gdk
 from gi.repository import Gtk
+from gi.repository import Pango
 
 from virtinst import log
+from virtinst import xmlutil
 
 from . import vmmenu
 from .baseclass import vmmGObjectUI
+from .lib import uiutil
 from .engine import vmmEngine
 from .details.console import vmmConsolePages
 from .details.details import vmmDetails
@@ -86,6 +89,7 @@ class vmmVMWindow(vmmGObjectUI):
             self.topwin.set_default_size(w, h)
         self._window_size = None
 
+        self._status_label = None
         self._shutdownmenu = None
         self._vmmenu = None
         self.init_menus()
@@ -170,6 +174,13 @@ class vmmVMWindow(vmmGObjectUI):
 
         self.conn.disconnect_by_obj(self)
         self.vm = None
+
+    def show_details_page(self):
+        """
+        Show the window on its hardware details page
+        """
+        self.show()
+        self.widget("control-vm-details").set_active(True)
 
     def show(self):
         log.debug("Showing VM details: %s", self.vm)
@@ -258,7 +269,8 @@ class vmmVMWindow(vmmGObjectUI):
         # Virtual Machine menu
         self._shutdownmenu = vmmenu.VMShutdownMenu(self, lambda: self.vm)
         self.widget("control-shutdown").set_menu(self._shutdownmenu)
-        self.widget("control-shutdown").set_icon_name("system-shutdown")
+        self.widget("control-shutdown").set_icon_name("system-shutdown-symbolic")
+        self._init_toolbar_design()
 
         topmenu = self.widget("details-vm-menu")
         submenu = topmenu.get_submenu()
@@ -385,9 +397,65 @@ class vmmVMWindow(vmmGObjectUI):
 
         self.topwin.set_title(title)
 
+    def _init_toolbar_design(self):
+        """
+        Turn the toolbar into a labeled Console/Details/Snapshots view
+        switcher, the VM actions, and the VM name and status at the end
+        """
+        toolbar = self.widget("details-toolbar")
+        toolbar.get_style_context().add_class("vmm-vmtoolbar")
+        toolbar.set_style(Gtk.ToolbarStyle.BOTH_HORIZ)
+        toolbar.set_property("icon-size", Gtk.IconSize.SMALL_TOOLBAR)
+
+        # Group the three view buttons together at the start
+        snapshots = self.widget("control-snapshots")
+        toolbar.remove(snapshots)
+        details_idx = toolbar.get_item_index(self.widget("control-vm-details"))
+        toolbar.insert(snapshots, details_idx + 1)
+        self.widget("toolbutton7").hide()
+
+        icons = {
+            "control-vm-console": "video-display-symbolic",
+            "control-vm-details": "emblem-system-symbolic",
+            "control-snapshots": "camera-photo-symbolic",
+            "control-run": "media-playback-start-symbolic",
+            "control-pause": "media-playback-pause-symbolic",
+            "control-fullscreen": "view-fullscreen-symbolic",
+        }
+        for widgetname, icon_name in icons.items():
+            self.widget(widgetname).set_icon_name(icon_name)
+        for widgetname, classname in [
+            ("control-run", "vmm-act-run"),
+            ("control-pause", "vmm-act-pause"),
+            ("control-shutdown", "vmm-act-stop"),
+        ]:
+            self.widget(widgetname).get_style_context().add_class(classname)
+        for widgetname in ["control-vm-console", "control-vm-details", "control-snapshots"]:
+            self.widget(widgetname).set_is_important(True)
+            self.widget(widgetname).set_homogeneous(False)
+
+        # VM name and status, pushed to the far end next to fullscreen
+        self._status_label = Gtk.Label(xalign=1)
+        self._status_label.set_ellipsize(Pango.EllipsizeMode.END)
+        self._status_label.set_margin_end(10)
+        item = Gtk.ToolItem()
+        item.set_expand(True)
+        item.add(self._status_label)
+        item.show_all()
+        fullscreen = self.widget("control-fullscreen")
+        toolbar.insert(item, toolbar.get_item_index(fullscreen))
+        toolbar.child_set_property(fullscreen, "expand", False)
+
+    def _refresh_status_label(self):
+        vm = self.vm
+        name = "<b>%s</b>" % xmlutil.xml_escape(vm.get_name_or_title())
+        status = uiutil.dot_markup(uiutil.vm_status_color(vm), vm.run_status())
+        self._status_label.set_markup(name + "     " + status)
+
     def _refresh_vm_state(self):
         vm = self.vm
         self._refresh_title()
+        self._refresh_status_label()
 
         self.widget("details-menu-view-toolbar").set_active(self.config.get_details_show_toolbar())
         self.toggle_toolbar(self.widget("details-menu-view-toolbar"))

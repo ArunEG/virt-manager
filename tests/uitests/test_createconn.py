@@ -71,8 +71,8 @@ def testConnect(app):
     connect.click()
 
     lib.utils.check(lambda: win.showing is True)
-    c = app.root.find_fuzzy(fakehost, "table cell")
-    lib.utils.check(lambda: "Connecting..." not in c.text, timeout=10)
+    c = app.root.find_fuzzy(fakehost, "list item")
+    lib.utils.check(lambda: "Connecting..." not in app.root.find_fuzzy(fakehost, "list item").name, timeout=10)
     app.click_alert_button("Unable to connect", "No")
 
     # Ensure dialog shows old contents for editing
@@ -82,10 +82,10 @@ def testConnect(app):
     # This time say 'yes'
     connect.click()
     lib.utils.check(lambda: win.showing is True)
-    c = app.root.find_fuzzy(fakehost, "table cell")
-    lib.utils.check(lambda: "Connecting..." not in c.text, timeout=10)
+    c = app.root.find_fuzzy(fakehost, "list item")
+    lib.utils.check(lambda: "Connecting..." not in app.root.find_fuzzy(fakehost, "list item").name, timeout=10)
     app.click_alert_button("Unable to connect", "Yes")
-    c = app.root.find_fuzzy(fakehost, "table cell")
+    c = app.root.find_fuzzy(fakehost, "list item")
     lib.utils.check(lambda: win.showing is False)
 
     # Test with custom test:///default connection
@@ -96,7 +96,7 @@ def testConnect(app):
     # Test connection double click
     c = app.manager_conn_disconnect("test default")
     c.doubleClick()
-    lib.utils.check(lambda: "Not Connected" not in c.text)
+    lib.utils.check(lambda: "Not Connected" not in app.manager_get_conn_cell("test default").name)
 
     # Delete it
     app.manager_conn_disconnect("test default")

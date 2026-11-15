@@ -311,10 +311,12 @@ class vmmGObjectUI(vmmGObject):
             self.builder = Gtk.Builder()
             self.builder.set_translation_domain("virt-manager")
             self.builder.add_from_file(uifile)
+            self._init_design_classes()
 
             if not topwin:
                 self.topwin = self.widget(windowname)
                 self.topwin.hide()
+                self._init_titlebar()
             else:
                 self.topwin = topwin
         else:
@@ -322,6 +324,57 @@ class vmmGObjectUI(vmmGObject):
             self.topwin = topwin
 
         self._err = None
+
+    # Widgets that get a style class from the app CSS in config.py, by
+    # their glade id: the main action of each window, destructive
+    # actions, and the lists that act as navigation sidebars
+    _DESIGN_CLASSES = {
+        "suggested-action": [
+            "connect",
+            "create-forward",
+            "create-finish",
+            "config-apply",
+            "clone-ok",
+            "change-storage-ok",
+            "connectauth-ok",
+            "pool-finish",
+            "vol-create",
+            "net-apply",
+            "pool-apply",
+            "choose-volume",
+            "migrate-finish",
+            "snapshot-new-ok",
+            "snapshot-apply",
+        ],
+        "destructive-action": ["delete-ok"],
+        "vmm-navlist": ["hw-list", "pool-list", "net-list", "snapshot-list"],
+        "vmm-console": ["console-pages"],
+    }
+
+    def _init_titlebar(self):
+        """
+        Replace the window manager's title bar with one we draw, so it
+        can follow the app's colors
+        """
+        win = self.topwin
+        if not isinstance(win, Gtk.Window) or win.get_titlebar() or win.get_realized():
+            return  # pragma: no cover
+        bar = Gtk.HeaderBar()
+        bar.set_show_close_button(True)
+        bar.set_title(win.get_title())
+        bar.get_style_context().add_class("vmm-titlebar")
+        icon = Gtk.Image.new_from_icon_name("virt-manager", Gtk.IconSize.MENU)
+        icon.set_margin_start(4)
+        bar.pack_start(icon)
+        bar.show_all()
+        win.set_titlebar(bar)
+
+    def _init_design_classes(self):
+        for classname, widgetnames in self._DESIGN_CLASSES.items():
+            for widgetname in widgetnames:
+                widget = self.builder.get_object(widgetname)
+                if widget:
+                    widget.get_style_context().add_class(classname)
 
     def _get_err(self):
         if self._err is None:

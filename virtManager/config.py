@@ -17,22 +17,523 @@ from .lib.inspection import vmmInspection
 CSSDATA = """
 /* Lighter colored text in some wizard summary fields */
 .vmm-lighter {
-    color: @insensitive_fg_color
+    color: alpha(@theme_fg_color, 0.55);
 }
 
-/* Text on the blue header in our wizards */
-.vmm-header-text {
-    color: white
-}
-
-/* Subtext on the blue header in our wizards */
-.vmm-header-subtext {
-    color: #59B0E2
-}
-
-/* The blue header */
+/* Header band at the top of our wizards and dialogs */
 .vmm-header {
-    background-color: #0072A8
+    background-color: @theme_base_color;
+    border-bottom: 1px solid alpha(@theme_fg_color, 0.10);
+    padding: 6px 8px;
+}
+.vmm-header-text {
+    color: @theme_fg_color;
+    font-size: 13pt;
+    font-weight: 800;
+}
+.vmm-header-subtext {
+    color: @vmm_accent;
+    font-weight: bold;
+}
+
+/*
+ * App wide look, shared by every window: one accent color for selection,
+ * toggles and primary actions, and softer rounded controls. Colors are
+ * derived from the theme so this follows light and dark themes
+ */
+@define-color vmm_accent #4c6fd6;
+
+/* Not popups: a menu's own window has to stay see-through, or it shows
+   as a square box behind the rounded menu */
+window.background:not(.popup) {
+    background-color: mix(@theme_base_color, @theme_bg_color, 0.45);
+}
+window.popup,
+window.popup.background {
+    background-color: transparent;
+}
+
+button {
+    border-radius: 8px;
+}
+button.suggested-action,
+button.destructive-action {
+    background-image: none;
+    background-color: @vmm_accent;
+    border-color: @vmm_accent;
+    color: white;
+    font-weight: bold;
+    text-shadow: none;
+    box-shadow: none;
+}
+button.suggested-action label,
+button.destructive-action label {
+    color: white;
+}
+button.suggested-action:hover {
+    background-color: shade(@vmm_accent, 1.1);
+}
+button.suggested-action:disabled {
+    background-color: alpha(@vmm_accent, 0.35);
+    border-color: transparent;
+}
+button.destructive-action {
+    background-color: #d64545;
+    border-color: #d64545;
+}
+button.destructive-action:hover {
+    background-color: shade(#d64545, 1.1);
+}
+button.destructive-action:disabled {
+    background-color: alpha(#d64545, 0.35);
+    border-color: transparent;
+}
+button.toggle:checked {
+    background-image: none;
+    background-color: alpha(@vmm_accent, 0.16);
+    border-color: alpha(@vmm_accent, 0.45);
+    color: @vmm_accent;
+}
+
+entry,
+spinbutton {
+    border-radius: 8px;
+}
+spinbutton entry {
+    border-radius: 0;
+}
+entry:focus,
+spinbutton:focus {
+    border-color: @vmm_accent;
+    box-shadow: inset 0 0 0 1px @vmm_accent;
+}
+entry selection,
+textview text selection,
+label selection {
+    background-color: alpha(@vmm_accent, 0.30);
+    color: @theme_fg_color;
+}
+
+check:checked,
+check:indeterminate,
+radio:checked {
+    background-image: none;
+    background-color: @vmm_accent;
+    border-color: @vmm_accent;
+    color: white;
+}
+switch:checked {
+    background-image: none;
+    background-color: @vmm_accent;
+    border-color: @vmm_accent;
+}
+progressbar progress,
+scale highlight,
+levelbar block.filled {
+    background-image: none;
+    background-color: @vmm_accent;
+    border-color: @vmm_accent;
+}
+
+treeview.view:selected,
+treeview.view:selected:focus,
+list row:selected,
+iconview:selected {
+    background-color: alpha(@vmm_accent, 0.14);
+    color: @theme_fg_color;
+}
+treeview.view header button {
+    border-radius: 0;
+    background-image: none;
+    background-color: @theme_base_color;
+    border-width: 0 0 1px 0;
+    border-color: alpha(@theme_fg_color, 0.10);
+    box-shadow: none;
+    font-weight: normal;
+    color: alpha(@theme_fg_color, 0.60);
+}
+
+notebook {
+    border-color: alpha(@theme_fg_color, 0.12);
+}
+notebook > header {
+    background-color: @theme_base_color;
+    border-color: alpha(@theme_fg_color, 0.10);
+}
+notebook > header tab {
+    color: alpha(@theme_fg_color, 0.60);
+    box-shadow: none;
+    padding: 8px 14px;
+}
+notebook > header tab:hover {
+    box-shadow: inset 0 -3px alpha(@vmm_accent, 0.30);
+}
+notebook > header tab:checked {
+    color: @vmm_accent;
+    font-weight: bold;
+    box-shadow: inset 0 -3px @vmm_accent;
+}
+
+toolbar {
+    background-image: none;
+    background-color: @theme_base_color;
+    border-bottom: 1px solid alpha(@theme_fg_color, 0.10);
+}
+/* Menu bar: a flat strip with pill shaped entries */
+menubar {
+    background-color: @theme_base_color;
+    border-bottom: 1px solid alpha(@theme_fg_color, 0.10);
+    box-shadow: none;
+    padding: 3px 8px;
+}
+menubar > menuitem {
+    border-radius: 6px;
+    padding: 5px 10px;
+    color: alpha(@theme_fg_color, 0.80);
+}
+menubar > menuitem:hover {
+    background-color: alpha(@vmm_accent, 0.14);
+    color: @vmm_accent;
+}
+
+/* Drop down and context menus: rounded cards with roomy, rounded rows */
+menu,
+.menu,
+.context-menu {
+    background-color: @theme_base_color;
+    border: 1px solid alpha(@theme_fg_color, 0.14);
+    border-radius: 10px;
+    padding: 6px;
+}
+/* Round the popup's shadow to match the menu's corners */
+.csd.popup decoration,
+window.popup decoration,
+.popup decoration {
+    border-radius: 10px;
+}
+menu menuitem {
+    border-radius: 6px;
+    padding: 7px 12px;
+    min-height: 20px;
+    color: @theme_fg_color;
+}
+menu menuitem:hover {
+    background-color: alpha(@vmm_accent, 0.14);
+    color: @vmm_accent;
+}
+menu menuitem:disabled {
+    color: alpha(@theme_fg_color, 0.38);
+}
+menu menuitem accelerator {
+    color: alpha(@theme_fg_color, 0.45);
+}
+menu menuitem:hover accelerator {
+    color: alpha(@vmm_accent, 0.70);
+}
+menu separator {
+    background-color: alpha(@theme_fg_color, 0.10);
+    min-height: 1px;
+    margin: 5px 6px;
+}
+menu menuitem check,
+menu menuitem radio {
+    margin-right: 6px;
+}
+menu menuitem arrow {
+    color: alpha(@theme_fg_color, 0.55);
+}
+expander title:hover,
+*:link {
+    color: @vmm_accent;
+}
+
+/* Navigation style lists: hardware list, pools, networks, snapshots */
+treeview.vmm-navlist {
+    background-color: @theme_base_color;
+    -GtkTreeView-vertical-separator: 8;
+}
+treeview.vmm-navlist:selected,
+treeview.vmm-navlist:selected:focus {
+    background-color: alpha(@vmm_accent, 0.14);
+    color: @vmm_accent;
+}
+
+/* Colored VM action icons, shared by the manager and VM window toolbars */
+toolbar .vmm-act-open image {
+    color: @vmm_accent;
+}
+toolbar .vmm-act-run image {
+    color: #2ea043;
+}
+toolbar .vmm-act-pause image {
+    color: #d4a017;
+}
+toolbar .vmm-act-stop image {
+    color: #e5534b;
+}
+/* Keep the shutdown menu arrow neutral */
+toolbar .vmm-act-stop button.toggle image {
+    color: alpha(@theme_fg_color, 0.7);
+}
+toolbar .vmm-act-open:disabled image,
+toolbar .vmm-act-run:disabled image,
+toolbar .vmm-act-pause:disabled image,
+toolbar .vmm-act-stop:disabled image {
+    color: alpha(@theme_fg_color, 0.3);
+}
+
+/* The same actions as buttons on the manager's machine card */
+.vmm-detail-card button.vmm-act-details image {
+    color: #8250df;
+}
+.vmm-detail-card button.vmm-act-run {
+    color: #2ea043;
+    border-color: alpha(#2ea043, 0.45);
+}
+.vmm-detail-card button.vmm-act-pause {
+    color: #b8860b;
+    border-color: alpha(#d4a017, 0.5);
+}
+.vmm-detail-card button.vmm-act-stop {
+    color: #e5534b;
+    border-color: alpha(#e5534b, 0.45);
+}
+.vmm-detail-card button.vmm-act-details {
+    border-color: alpha(#8250df, 0.4);
+}
+.vmm-detail-card button.vmm-act-run:hover {
+    background-color: alpha(#2ea043, 0.1);
+}
+.vmm-detail-card button.vmm-act-pause:hover {
+    background-color: alpha(#d4a017, 0.12);
+}
+.vmm-detail-card button.vmm-act-stop:hover {
+    background-color: alpha(#e5534b, 0.1);
+}
+.vmm-detail-card button.vmm-act-details:hover {
+    background-color: alpha(#8250df, 0.08);
+}
+
+/* App drawn title bar, see vmmGObjectUI._init_titlebar */
+headerbar.vmm-titlebar {
+    min-height: 40px;
+    padding: 0 8px;
+    border-bottom: 1px solid alpha(@vmm_accent, 0.25);
+    background-image: linear-gradient(
+        to right,
+        mix(@theme_base_color, @vmm_accent, 0.2),
+        mix(@theme_base_color, #5cc7fa, 0.16)
+    );
+    box-shadow: none;
+}
+headerbar.vmm-titlebar:backdrop {
+    background-image: linear-gradient(
+        to right,
+        mix(@theme_base_color, @vmm_accent, 0.08),
+        mix(@theme_base_color, #5cc7fa, 0.06)
+    );
+}
+headerbar.vmm-titlebar .title {
+    font-weight: 800;
+}
+headerbar.vmm-titlebar button.titlebutton {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 2px;
+    border-radius: 99px;
+    border: none;
+    box-shadow: none;
+    background-image: none;
+    background-color: alpha(@theme_fg_color, 0.08);
+}
+headerbar.vmm-titlebar button.titlebutton:hover {
+    background-color: alpha(@vmm_accent, 0.25);
+}
+headerbar.vmm-titlebar button.titlebutton.close:hover {
+    background-color: #e5534b;
+    color: #ffffff;
+}
+window.csd decoration {
+    border-radius: 10px;
+}
+
+/* VM window: view switcher toolbar and a dark stage for the console */
+toolbar.vmm-vmtoolbar {
+    padding: 5px 8px;
+}
+toolbar.vmm-vmtoolbar button {
+    padding: 5px 10px;
+    margin: 0 1px;
+}
+toolbar.vmm-vmtoolbar button:checked {
+    background-image: none;
+    background-color: alpha(@vmm_accent, 0.16);
+    border-color: transparent;
+    box-shadow: none;
+}
+toolbar.vmm-vmtoolbar button:checked label,
+toolbar.vmm-vmtoolbar button:checked image {
+    color: @vmm_accent;
+    font-weight: bold;
+}
+notebook.vmm-console,
+notebook.vmm-console > stack,
+notebook.vmm-console notebook,
+notebook.vmm-console notebook > stack,
+notebook.vmm-console viewport,
+notebook.vmm-console scrolledwindow {
+    background-color: #181b24;
+}
+notebook.vmm-console label {
+    color: #c5cde0;
+}
+notebook.vmm-console checkbutton label {
+    color: #c5cde0;
+}
+
+/* Manager window: sidebar + machine table layout */
+
+/* The sidebar floats as a rounded card on the painted backdrop */
+.vmm-sidebar {
+    background-color: @theme_base_color;
+    border: 1px solid alpha(@theme_fg_color, 0.12);
+    border-radius: 12px;
+    margin: 20px 0 20px 20px;
+    padding-bottom: 8px;
+}
+.vmm-sidebar list {
+    background-color: transparent;
+}
+.vmm-sidebar row {
+    border-radius: 8px;
+    margin: 2px 12px;
+    padding: 9px 10px;
+}
+.vmm-sidebar row:selected {
+    background-color: alpha(@vmm_accent, 0.13);
+    color: @theme_fg_color;
+}
+.vmm-sidebar .vmm-filter-list row:selected label,
+.vmm-sidebar .vmm-filter-list row:selected image {
+    color: @vmm_accent;
+    font-weight: bold;
+}
+.vmm-sidebar row.vmm-conn-row {
+    background-color: alpha(@theme_fg_color, 0.05);
+    padding: 12px 10px;
+}
+.vmm-sidebar row.vmm-conn-row:selected {
+    background-color: alpha(@vmm_accent, 0.13);
+}
+.vmm-section-label {
+    font-size: smaller;
+    font-weight: bold;
+    letter-spacing: 1.5px;
+    color: alpha(@theme_fg_color, 0.55);
+}
+.vmm-dim {
+    color: alpha(@theme_fg_color, 0.55);
+}
+.vmm-side-button {
+    margin: 4px 12px;
+    padding: 6px 10px;
+    color: alpha(@theme_fg_color, 0.65);
+}
+/* The backdrop is painted in code, see vmmManager._paint_backdrop */
+.vmm-main {
+    background-color: transparent;
+    padding: 20px;
+}
+.vmm-title {
+    font-size: 20pt;
+    font-weight: 800;
+}
+.vmm-main toolbar {
+    background: none;
+    border: none;
+    padding: 0;
+}
+button.vmm-create {
+    background-image: none;
+    background-color: @vmm_accent;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-weight: bold;
+    text-shadow: none;
+    box-shadow: none;
+}
+button.vmm-create:hover {
+    background-color: shade(@vmm_accent, 1.1);
+}
+button.vmm-create:disabled {
+    background-color: alpha(@vmm_accent, 0.4);
+}
+/* Card with the selected machine's summary and actions */
+.vmm-detail-card {
+    background-color: @theme_base_color;
+    border: 1px solid alpha(@theme_fg_color, 0.14);
+    border-radius: 10px;
+    padding: 18px 22px;
+}
+.vmm-detail-name {
+    font-size: 13pt;
+    font-weight: 800;
+}
+.vmm-detail-card button {
+    padding: 8px 16px;
+}
+
+/* Favorite star on the machine card */
+.vmm-detail-card button.vmm-favorite {
+    padding: 4px 6px;
+    min-width: 0;
+    min-height: 0;
+    border: none;
+    box-shadow: none;
+    background: none;
+    color: alpha(@theme_fg_color, 0.4);
+}
+.vmm-detail-card button.vmm-favorite:hover,
+.vmm-detail-card button.vmm-favorite.vmm-favorite-on {
+    color: #e3a008;
+}
+
+/* Search box above the machine table */
+entry.vmm-search {
+    min-height: 34px;
+    border-radius: 99px;
+    padding: 0 12px;
+    background-color: alpha(@theme_base_color, 0.85);
+    border: 1px solid alpha(@theme_fg_color, 0.16);
+    box-shadow: none;
+}
+entry.vmm-search:focus {
+    border-color: @vmm_accent;
+    box-shadow: 0 0 0 2px alpha(@vmm_accent, 0.2);
+}
+
+/* The rounded border is drawn in code, see vmmManager._card_draw_cb */
+.vmm-card {
+    background-color: @theme_base_color;
+}
+treeview.vmm-vmlist {
+    border-top-color: alpha(@theme_fg_color, 0.09);
+}
+treeview.vmm-vmlist:selected {
+    background-color: alpha(@vmm_accent, 0.13);
+    color: @theme_fg_color;
+}
+treeview.vmm-vmlist header button {
+    background-image: none;
+    background-color: @theme_base_color;
+    border-width: 0 0 1px 0;
+    border-color: alpha(@theme_fg_color, 0.10);
+    box-shadow: none;
+    padding: 7px 12px;
+    font-weight: normal;
+    color: alpha(@theme_fg_color, 0.60);
 }
 """
 

@@ -13,7 +13,12 @@ from . import lib
 
 
 def _open_newvm(app):
-    button = app.root.find("New", "push button")
+    button = app.root.find("create-vm", "push button")
+    if not button.sensitive:
+        manager = app.get_manager()
+        manager.find("File", "menu").click()
+        manager.find("New Virtual Machine", "menu item").click()
+        return app.find_window("New VM")
     # Launching the dialog can be very flakey without this explicit
     # point() call, not sure why
     button.point()
@@ -248,6 +253,9 @@ def testNewVMCDROMRegular(app):
     # this stuff is to try and fix focus
     app.rawinput.pressKey("Escape")
     newvm.click_title()
+    # Selecting /dev/sr0 above started OS detection, which disables
+    # Forward until it finishes. Wait for that, or the click is ignored
+    newvm.find("Forward", "push button").check_sensitive()
     _forward(newvm, check=False)
     app.click_alert_button("media selection is required", "OK")
 

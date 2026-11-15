@@ -149,7 +149,7 @@ def testHostConn(app):
     app.manager_conn_disconnect("test testdriver.xml")
 
     # Open Host Details from right click menu
-    c = manager.find("test testdriver.xml", "table cell")
+    c = app.manager_get_conn_cell("test testdriver.xml")
     c.click(button=3)
     app.root.find("conn-details", "menu item").click()
     win = app.find_window("test testdriver.xml - Connection Details")
@@ -172,7 +172,7 @@ def testHostConn(app):
     win.find("View Manager", "menu item").click()
     lib.utils.check(lambda: manager.active)
     # Confirm connection row is named differently in manager
-    manager.find("FOOBAR", "table cell")
+    app.manager_get_conn_cell("FOOBAR")
 
     # Close the manager
     manager.window_close()

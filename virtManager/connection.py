@@ -1424,6 +1424,12 @@ class vmmConnection(vmmGObject):
             return
         self.config.set_perconn(self.get_uri(), "/pretty-name", value)
 
+    def get_vm_groups(self):
+        return list(self.config.get_perconn(self.get_uri(), "/vm-groups"))
+
+    def set_vm_groups(self, groups):
+        self.config.set_perconn(self.get_uri(), "/vm-groups", sorted(set(groups)))
+
     def _get_config_pretty_name(self):
         return self.config.get_perconn(self.get_uri(), "/pretty-name")
 

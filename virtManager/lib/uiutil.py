@@ -196,3 +196,34 @@ def build_simple_combo(combo, values, default_value=None, sort=True):
         set_list_selection(combo, default_value)
     elif len(model):
         combo.set_active(0)
+
+
+###########################
+# VM status color helpers #
+###########################
+
+# Status colors used across the UI. Mid tones, so they are readable on
+# both light and dark themes
+COLOR_RUNNING = "#2ea043"
+COLOR_PAUSED = "#d4a017"
+COLOR_ERROR = "#e5534b"
+COLOR_OFF = "#7d8590"
+
+
+def vm_status_color(vm):
+    if vm.is_crashed():
+        return COLOR_ERROR
+    if vm.is_paused():
+        return COLOR_PAUSED
+    if vm.is_active():
+        return COLOR_RUNNING
+    return COLOR_OFF
+
+
+def dot_markup(color, text):
+    """
+    Pango markup for text prefixed with a colored status dot
+    """
+    from virtinst import xmlutil
+
+    return "<span foreground='%s'>\u25cf</span> %s" % (color, xmlutil.xml_escape(text))

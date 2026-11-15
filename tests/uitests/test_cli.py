@@ -96,7 +96,7 @@ def testShowRemoteDBusConnect(app):
         vapps = [a for a in newapp.tree.root.applications() if a.name == "virt-manager"]
         lib.utils.check(lambda: len(vapps) == 1, timeout=timeout)
         # Ensure connection showed up
-        app.topwin.find("test default", "table cell")
+        app.topwin.find("test default", "list item")
 
     _run_remote([])
     # Run remote again to trigger engine.py code when a connection
@@ -125,13 +125,13 @@ def testShowCLIError(app):
 def testCLIFirstRunURIGood(app):
     # Emulate first run with a URI that will succeed
     app.open(use_uri=False, firstrun_uri="test:///default")
-    app.root.find("test default", "table cell")
+    app.root.find("test default", "list item")
 
 
 def testCLIFirstRunURIBad(app):
     # Emulate first run with a URI that will not succeed
     app.open(use_uri=False, firstrun_uri="bad:///uri")
-    app.topwin.find("bad uri", "table cell")
+    app.topwin.find("bad uri", "list item")
     app.click_alert_button("bad:///uri", "Close")
 
 

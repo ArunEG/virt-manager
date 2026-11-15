@@ -39,7 +39,7 @@ def _testVMLifecycle(app):
     smenu.click()
     save.click()
     lib.utils.check(lambda: run.sensitive, timeout=5)
-    lib.utils.check(lambda: "Saved" in c.text)
+    lib.utils.check(lambda: "Saved" in manager.find("card-value-status").text)
     run.click()
     lib.utils.check(lambda: shutdown.sensitive, timeout=5)
 
@@ -179,6 +179,7 @@ def testManagerColumns(app):
     # Enable all stat options
     # Need to expand the window size so all columns are onscreen
     app.open(keyfile="winsize.ini")
+    app.get_manager().window_maximize()
     app.root.find("Edit", "menu").click()
     app.root.find("Preferences", "menu item").click()
     win = app.find_window("Preferences")
@@ -205,12 +206,13 @@ def testManagerColumns(app):
 
     def _test_column(name):
         _click_column_menu(name)
-        _test_sort(name)
+        _test_sort("Memory usage" if name == "Memory" else name)
+        _click_column_menu(name)
 
-    _test_sort("Name")
+    _test_sort("Machine name")
     _click_column_menu("Guest CPU")
     _click_column_menu("Guest CPU")
-    _test_sort("CPU usage")
+    _test_sort("CPU")
     _test_column("Host CPU")
     _test_column("Memory")
     _test_column("Disk I/O")
@@ -230,7 +232,7 @@ def testManagerWindowReposition(app):
 
     # Use alt+f7 combo to move window
     curxy = manager.title_coordinates()
-    newxy = (curxy[0] + 400, curxy[1] + 400)
+    newxy = (curxy[0] + 80, curxy[1] + 80)
     manager.keyCombo("<alt>F7")
     app.rawinput.click(*newxy)
     checkxy = manager.position[0], manager.position[1]
@@ -270,7 +272,7 @@ def testManagerWindowCleanup(app):
 
     # Open host
     manager.grab_focus()
-    c = manager.find_fuzzy("testdriver.xml", "table cell")
+    c = app.manager_get_conn_cell("test testdriver.xml")
     c.doubleClick()
     host = app.find_window("test testdriver.xml - Connection Details")
 
@@ -306,7 +308,7 @@ def testManagerDefaultStartup(app):
 def testManagerConnOpenFail(app):
     app.open(keyfile="baduri.ini")
     manager = app.topwin
-    manager.find_fuzzy("bad uri", "table cell").doubleClick()
+    app.manager_get_conn_cell("bad uri").doubleClick()
     lib.utils.check(lambda: not manager.active)
     app.click_alert_button("Unable to connect", "Close")
     lib.utils.check(lambda: manager.active)
