@@ -485,6 +485,35 @@ button.vmm-create:disabled {
     padding: 8px 16px;
 }
 
+/* Favorite star on the machine card */
+.vmm-detail-card button.vmm-favorite {
+    padding: 4px 6px;
+    min-width: 0;
+    min-height: 0;
+    border: none;
+    box-shadow: none;
+    background: none;
+    color: alpha(@theme_fg_color, 0.4);
+}
+.vmm-detail-card button.vmm-favorite:hover,
+.vmm-detail-card button.vmm-favorite.vmm-favorite-on {
+    color: #e3a008;
+}
+
+/* Search box above the machine table */
+entry.vmm-search {
+    min-height: 34px;
+    border-radius: 99px;
+    padding: 0 12px;
+    background-color: alpha(@theme_base_color, 0.85);
+    border: 1px solid alpha(@theme_fg_color, 0.16);
+    box-shadow: none;
+}
+entry.vmm-search:focus {
+    border-color: @vmm_accent;
+    box-shadow: 0 0 0 2px alpha(@vmm_accent, 0.2);
+}
+
 /* The rounded border is drawn in code, see vmmManager._card_draw_cb */
 .vmm-card {
     background-color: @theme_base_color;

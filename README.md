@@ -12,8 +12,10 @@ This fork reworks the main window around VM groups:
  - **Groups**: organize the VMs of a connection into named groups, for
    example one per network setup, and run or shut down a whole group
    at once
- - **Sidebar**: switch between all machines, the ungrouped ones, or a
-   single group
+ - **Sidebar**: switch between all machines, your favorites, the
+   ungrouped ones, or a single group
+ - **Favorites and search**: star the machines you use most, and filter
+   any view by machine or group name
  - **Machine table**: machines listed under collapsible group headings,
    with status, CPU and memory at a glance and a detail card for the
    selected VM

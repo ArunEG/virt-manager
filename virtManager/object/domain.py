@@ -1762,6 +1762,12 @@ class vmmDomain(vmmLibvirtObject):
     def set_group(self, group):
         self.config.set_pervm(self.get_uuid(), "/group", group or "")
 
+    def get_favorite(self):
+        return bool(self.config.get_pervm(self.get_uuid(), "/favorite"))
+
+    def set_favorite(self, favorite):
+        self.config.set_pervm(self.get_uuid(), "/favorite", bool(favorite))
+
     def get_cache_dir(self):
         ret = os.path.join(self.conn.get_cache_dir(), self.get_uuid())
         os.makedirs(ret, 0o755, exist_ok=True)

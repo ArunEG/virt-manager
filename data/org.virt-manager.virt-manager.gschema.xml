@@ -37,6 +37,12 @@
       <summary>Manager window group for this VM</summary>
       <description>Name of the group this VM is shown under in the manager window. If empty, the VM is listed directly under its connection.</description>
     </key>
+
+    <key name="favorite" type="b">
+      <default>false</default>
+      <summary>Show this VM under the manager window's favorites</summary>
+      <description>Whether this VM is listed in the Favorites view of the manager window.</description>
+    </key>
   </schema>
 
 

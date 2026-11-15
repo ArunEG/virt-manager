@@ -118,3 +118,60 @@ def testManagerMouseMenu(app):
         win = app.find_window("Clone Virtual Machine")
         win.find("Cancel", "push button").click()
         lib.utils.check(lambda: not win.showing)
+
+
+def testManagerFavorites(app):
+    manager = app.topwin
+    manager.window_maximize()
+    lib.utils.check(lambda: _filter(app, r"Favorites \(0\)").showing)
+
+    # Add from the context menu
+    manager.find("test-clone-simple$", "table cell").click(button=3)
+    menu = app.root.find("vm-action-menu")
+    menu.find("Add to Favorites", "menu item").click()
+    _filter(app, r"Favorites \(1\)")
+
+    # Add from the card
+    manager.find("test-clone$", "table cell").click()
+    star = manager.find("card-favorite", "push button")
+    star.click()
+    _filter(app, r"Favorites \(2\)").click()
+    vmlist = manager.find("vm-list")
+    lib.utils.check(lambda: len(vmlist.findChildren(_is_name_cell)) == 2)
+
+    # Remove again, the machine leaves the view
+    cell = manager.find("test-clone-simple.*", "table cell")
+    cell.click(button=3)
+    menu = app.root.find("vm-action-menu")
+    menu.find("Remove from Favorites", "menu item").click()
+    _filter(app, r"Favorites \(1\)")
+    lib.utils.check(lambda: len(vmlist.findChildren(_is_name_cell)) == 1)
+
+
+def _is_name_cell(node):
+    return node.roleName == "table cell" and node.name.startswith("test")
+
+
+def testManagerSearch(app):
+    manager = app.topwin
+    vmlist = manager.find("vm-list")
+    search = manager.find("vm-search", "text")
+    total = len(vmlist.findChildren(_is_name_cell))
+
+    search.set_text("CLONE")
+    lib.utils.check(lambda: len(vmlist.findChildren(_is_name_cell)) == 3)
+    manager.find("test-clone-full$", "table cell")
+
+    search.set_text("no such machine")
+    lib.utils.check(lambda: len(vmlist.findChildren(_is_name_cell)) == 0)
+
+    # Escape clears the search
+    search.click()
+    app.rawinput.pressKey("Escape")
+    lib.utils.check(lambda: search.text == "")
+    lib.utils.check(lambda: len(vmlist.findChildren(_is_name_cell)) == total)
+
+    # Ctrl+F jumps to the search box
+    manager.find("test-clone$", "table cell").click()
+    manager.keyCombo("<ctrl>f")
+    lib.utils.check(lambda: search.focused)

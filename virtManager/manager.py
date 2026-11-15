@@ -72,6 +72,9 @@ _vm_status_color = uiutil.vm_status_color
 # Sidebar filters: which VMs of the current connection are listed
 FILTER_ALL = ("all", None)
 FILTER_UNGROUPED = ("ungrouped", None)
+FILTER_FAVORITES = ("favorites", None)
+
+COLOR_FAVORITE = "#e3a008"
 
 MANAGER_MIN_DEFAULT_SIZE = (1120, 680)
 
@@ -232,6 +235,7 @@ class vmmManager(vmmGObjectUI):
         self._conns = []
         self._current_conn = None
         self._filter = FILTER_ALL
+        self._search_text = ""
         self._sidebar_updating = False
 
         self._conn_list = None
@@ -442,8 +446,20 @@ class vmmManager(vmmGObjectUI):
         header = Gtk.Box(spacing=12)
         header.set_margin_bottom(14)
         header.pack_start(titles, True, True, 0)
+        self._search_entry = Gtk.SearchEntry()
+        self._search_entry.set_placeholder_text(_("Search machines"))
+        self._search_entry.set_tooltip_text(_("Search by machine or group name (Ctrl+F)"))
+        self._search_entry.set_width_chars(18)
+        self._search_entry.set_valign(Gtk.Align.CENTER)
+        self._search_entry.get_style_context().add_class("vmm-search")
+        self._search_entry.get_accessible().set_name("vm-search")
+        self._search_entry.connect("search-changed", self._search_changed_cb)
+        self._search_entry.connect("stop-search", self._search_stop_cb)
+        self.topwin.connect("key-press-event", self._window_key_press_cb)
+
         header.pack_end(self._create_button, False, False, 0)
         header.pack_end(toolbar, False, False, 0)
+        header.pack_end(self._search_entry, False, False, 0)
 
         scroll.set_shadow_type(Gtk.ShadowType.NONE)
         scroll.get_style_context().add_class("vmm-card")
@@ -528,7 +544,15 @@ class vmmManager(vmmGObjectUI):
 
         top = Gtk.Box(spacing=10)
         top.add(Gtk.Image.new_from_icon_name("computer-symbolic", Gtk.IconSize.LARGE_TOOLBAR))
-        top.pack_start(self._detail_name, True, True, 0)
+        top.pack_start(self._detail_name, False, False, 0)
+        self._detail_favorite = Gtk.Button()
+        self._detail_favorite.set_relief(Gtk.ReliefStyle.NONE)
+        self._detail_favorite.set_valign(Gtk.Align.CENTER)
+        self._detail_favorite.get_style_context().add_class("vmm-favorite")
+        self._detail_favorite.add(Gtk.Image())
+        self._detail_favorite.get_accessible().set_name("card-favorite")
+        self._detail_favorite.connect("clicked", self._detail_favorite_cb)
+        top.pack_start(self._detail_favorite, False, False, 0)
         for name in ["shutdown", "pause", "run", "details", "console"]:
             top.pack_end(self._detail_buttons[name], False, False, 0)
 
@@ -570,6 +594,11 @@ class vmmManager(vmmGObjectUI):
         if vm:
             vmmVMWindow.get_instance(self, vm).show_details_page()
 
+    def _detail_favorite_cb(self, _src):
+        vm = self.current_vm()
+        if vm:
+            self.set_vm_favorite(vm, not vm.get_favorite())
+
     def _detail_pause_cb(self, _src):
         vm = self.current_vm()
         if not vm:
@@ -587,6 +616,18 @@ class vmmManager(vmmGObjectUI):
         xmlobj = vm.get_xmlobj()
         vcpus = xmlobj.vcpus or 1
         self._detail_name.set_text(vm.get_name_or_title())
+        favorite = vm.get_favorite()
+        self._detail_favorite.get_child().set_from_icon_name(
+            favorite and "starred-symbolic" or "non-starred-symbolic", Gtk.IconSize.MENU
+        )
+        self._detail_favorite.set_tooltip_text(
+            favorite and _("Remove from favorites") or _("Add to favorites")
+        )
+        ctx = self._detail_favorite.get_style_context()
+        if favorite:
+            ctx.add_class("vmm-favorite-on")
+        else:
+            ctx.remove_class("vmm-favorite-on")
         self._detail_values["vcpus"].set_text(ngettext("%d vCPU", "%d vCPUs", vcpus) % vcpus)
         self._detail_values["memory"].set_text(_pretty_memory(xmlobj.memory or 0))
         self._detail_values["group"].set_text(vm.get_group() or _("Ungrouped"))
@@ -815,6 +856,10 @@ class vmmManager(vmmGObjectUI):
         groupitem.vmm_widget_name = "group"
         groupitem.set_submenu(_VMGroupMenu(self))
         self.vmmenu.add(groupitem)
+        self._favorite_item = Gtk.MenuItem.new_with_mnemonic(_("Add to _Favorites"))
+        self._favorite_item.vmm_widget_name = "favorite"
+        self._favorite_item.connect("activate", self._favorite_item_cb)
+        self.vmmenu.add(self._favorite_item)
         self.vmmenu.show_all()
 
         # Build group context menu
@@ -1324,10 +1369,52 @@ class vmmManager(vmmGObjectUI):
         vms = self._conn_vms()
         kind, groupname = self._filter
         if kind == "ungrouped":
-            return [vm for vm in vms if not vm.get_group()]
-        if kind == "group":
-            return [vm for vm in vms if vm.get_group() == groupname]
+            vms = [vm for vm in vms if not vm.get_group()]
+        elif kind == "group":
+            vms = [vm for vm in vms if vm.get_group() == groupname]
+        elif kind == "favorites":
+            vms = [vm for vm in vms if vm.get_favorite()]
+
+        text = self._search_text
+        if text:
+            vms = [
+                vm
+                for vm in vms
+                if text in vm.get_name_or_title().lower()
+                or text in vm.get_name().lower()
+                or text in vm.get_group().lower()
+            ]
         return vms
+
+    def _search_changed_cb(self, src):
+        text = src.get_text().strip().lower()
+        if text == self._search_text:
+            return
+        self._search_text = text
+        self._refresh_all()
+        self._scroll_vmlist_to_top()
+
+    def _search_stop_cb(self, src):
+        src.set_text("")
+        self.widget("vm-list").grab_focus()
+
+    def _window_key_press_cb(self, _src, event):
+        ctrl = event.state & Gdk.ModifierType.CONTROL_MASK
+        if ctrl and Gdk.keyval_name(event.keyval) in ["f", "F"]:
+            self._search_entry.grab_focus()
+            return True
+        return False
+
+    def set_vm_favorite(self, vm, favorite):
+        if bool(favorite) == vm.get_favorite():
+            return
+        vm.set_favorite(favorite)
+        self._refresh_all()
+
+    def _favorite_item_cb(self, _src):
+        vm = self.current_vm()
+        if vm:
+            self.set_vm_favorite(vm, not vm.get_favorite())
 
     def list_group_names(self, conn):
         """
@@ -1362,7 +1449,9 @@ class vmmManager(vmmGObjectUI):
                     self._filter_list.select_row(row)
 
             ungrouped = [vm for vm in vms if not vm.get_group()]
+            favorites = [vm for vm in vms if vm.get_favorite()]
             add_row(FILTER_ALL, "view-grid-symbolic", _("All machines"), len(vms))
+            add_row(FILTER_FAVORITES, "starred-symbolic", _("Favorites"), len(favorites))
             add_row(FILTER_UNGROUPED, "computer-symbolic", _("Ungrouped"), len(ungrouped))
             for name in groupnames:
                 count = len([vm for vm in vms if vm.get_group() == name])
@@ -1550,7 +1639,10 @@ class vmmManager(vmmGObjectUI):
     #####################################
 
     def _build_vm_markup(self, vm):
-        return xmlutil.xml_escape(vm.get_name_or_title())
+        markup = xmlutil.xml_escape(vm.get_name_or_title())
+        if vm.get_favorite():
+            markup += "  <span foreground='%s'>\u2605</span>" % COLOR_FAVORITE
+        return markup
 
     def _set_vm_row(self, row, vm):
         row[ROW_SORT_KEY] = vm.get_name_or_title()
@@ -1603,6 +1695,9 @@ class vmmManager(vmmGObjectUI):
             groupnames = self.list_group_names(self._current_conn)
             if any(not vm.get_group() for vm in vms):
                 groupnames.append("")
+            if self._search_text:
+                # Only the groups with a match
+                groupnames = [g for g in groupnames if any(vm.get_group() == g for vm in vms)]
 
         for groupname, row in headings.items():
             if groupname not in groupnames:
@@ -1682,6 +1777,8 @@ class vmmManager(vmmGObjectUI):
         title = _("Virtual machines")
         if self._filter == FILTER_UNGROUPED:
             title = _("Ungrouped")
+        elif self._filter == FILTER_FAVORITES:
+            title = _("Favorites")
         elif self.current_group():
             title = self.current_group()
         self._title_label.set_text(title)
@@ -1922,6 +2019,9 @@ class vmmManager(vmmGObjectUI):
         if vm is None:
             return
         self.vmmenu.update_widget_states(vm)
+        self._favorite_item.set_label(
+            vm.get_favorite() and _("Remove from _Favorites") or _("Add to _Favorites")
+        )
         self.vmmenu.popup_at_pointer(event)
 
     #################
