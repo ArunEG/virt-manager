@@ -279,7 +279,82 @@ toolbar .vmm-act-open:disabled image,
 toolbar .vmm-act-run:disabled image,
 toolbar .vmm-act-pause:disabled image,
 toolbar .vmm-act-stop:disabled image {
-    opacity: 0.35;
+    color: alpha(@theme_fg_color, 0.3);
+}
+
+/* The same actions as buttons on the manager's machine card */
+.vmm-detail-card button.vmm-act-details image {
+    color: #8250df;
+}
+.vmm-detail-card button.vmm-act-run {
+    color: #2ea043;
+    border-color: alpha(#2ea043, 0.45);
+}
+.vmm-detail-card button.vmm-act-pause {
+    color: #b8860b;
+    border-color: alpha(#d4a017, 0.5);
+}
+.vmm-detail-card button.vmm-act-stop {
+    color: #e5534b;
+    border-color: alpha(#e5534b, 0.45);
+}
+.vmm-detail-card button.vmm-act-details {
+    border-color: alpha(#8250df, 0.4);
+}
+.vmm-detail-card button.vmm-act-run:hover {
+    background-color: alpha(#2ea043, 0.1);
+}
+.vmm-detail-card button.vmm-act-pause:hover {
+    background-color: alpha(#d4a017, 0.12);
+}
+.vmm-detail-card button.vmm-act-stop:hover {
+    background-color: alpha(#e5534b, 0.1);
+}
+.vmm-detail-card button.vmm-act-details:hover {
+    background-color: alpha(#8250df, 0.08);
+}
+
+/* App drawn title bar, see vmmGObjectUI._init_titlebar */
+headerbar.vmm-titlebar {
+    min-height: 40px;
+    padding: 0 8px;
+    border-bottom: 1px solid alpha(@vmm_accent, 0.25);
+    background-image: linear-gradient(
+        to right,
+        mix(@theme_base_color, @vmm_accent, 0.2),
+        mix(@theme_base_color, #5cc7fa, 0.16)
+    );
+    box-shadow: none;
+}
+headerbar.vmm-titlebar:backdrop {
+    background-image: linear-gradient(
+        to right,
+        mix(@theme_base_color, @vmm_accent, 0.08),
+        mix(@theme_base_color, #5cc7fa, 0.06)
+    );
+}
+headerbar.vmm-titlebar .title {
+    font-weight: 800;
+}
+headerbar.vmm-titlebar button.titlebutton {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 2px;
+    border-radius: 99px;
+    border: none;
+    box-shadow: none;
+    background-image: none;
+    background-color: alpha(@theme_fg_color, 0.08);
+}
+headerbar.vmm-titlebar button.titlebutton:hover {
+    background-color: alpha(@vmm_accent, 0.25);
+}
+headerbar.vmm-titlebar button.titlebutton.close:hover {
+    background-color: #e5534b;
+    color: #ffffff;
+}
+window.csd decoration {
+    border-radius: 10px;
 }
 
 /* VM window: view switcher toolbar and a dark stage for the console */
@@ -408,10 +483,6 @@ button.vmm-create:disabled {
 }
 .vmm-detail-card button {
     padding: 8px 16px;
-}
-
-.vmm-group-toggle label {
-    color: alpha(@theme_fg_color, 0.65);
 }
 
 /* The rounded border is drawn in code, see vmmManager._card_draw_cb */
@@ -1012,13 +1083,6 @@ class vmmConfig:
     def set_manager_window_size(self, w, h):
         self.conf.set("/manager-window-width", w)
         self.conf.set("/manager-window-height", h)
-
-    # Manager 'All machines' list arranged under group headings
-    def get_manager_group_machines(self):
-        return self.conf.get("/manager-group-machines")
-
-    def set_manager_group_machines(self, val):
-        self.conf.set("/manager-group-machines", bool(val))
 
     # URI autoconnect
     def get_conn_autoconnect(self, uri):

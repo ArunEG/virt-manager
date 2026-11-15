@@ -83,12 +83,6 @@
       <description>Enable libguestfs VM inspection for things like OS icons, installed applications, etc. This only works if python libguestfs bindings are installed.</description>
     </key>
 
-    <key name="manager-group-machines" type="b">
-      <default>false</default>
-      <summary>Group machines in the manager list</summary>
-      <description>Whether the 'All machines' view of the manager window lists the machines under a heading per VM group.</description>
-    </key>
-
     <key name="manager-window-height" type="i">
       <default>0</default>
       <summary>Default manager window height</summary>

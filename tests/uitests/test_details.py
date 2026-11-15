@@ -818,7 +818,7 @@ def testDetailsConsoleChecksSSH(app):
     app.uri = uri
     app.open(xmleditor_enabled=True)
 
-    app.topwin.find("test\n", "table cell").doubleClick()
+    app.topwin.find("test$", "table cell").doubleClick()
     win = app.find_window("test on")
     conpages = win.find("console-pages")
     run = win.find("Run", "push button")
@@ -922,7 +922,7 @@ def _testDetailsConsoleChecksTCP(app, fakeuri, msg):
     app.uri = uri
     app.open(xmleditor_enabled=True)
 
-    app.topwin.find("test\n", "table cell").doubleClick()
+    app.topwin.find("test$", "table cell").doubleClick()
     win = app.find_window("test on")
     conpages = win.find("console-pages")
     run = win.find("Run", "push button")
@@ -990,7 +990,7 @@ def testDetailsConsoleSerialSwitch(app):
     non-SSH transport but the guest config is only listening locally
     """
     app.open(xmleditor_enabled=True)
-    app.topwin.find("test\n", "table cell").doubleClick()
+    app.topwin.find("test$", "table cell").doubleClick()
     win = app.find_window("test on")
     conpages = win.find("console-pages")
     run = win.find("Run", "push button")

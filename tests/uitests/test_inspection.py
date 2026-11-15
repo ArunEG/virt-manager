@@ -45,7 +45,7 @@ def testInspectionMock(app):
     details.window_close()
 
     # Open a VM with no disks which will report an inspection error
-    app.root.find_fuzzy("test\n", "table cell").doubleClick()
+    app.root.find("test$", "table cell").doubleClick()
     details = app.find_window("test on")
     details.find("Details", "radio button").click()
     details.find("OS information", "table cell").click()
