@@ -11,7 +11,12 @@ from . import lib
 
 
 def testSystrayFake(app):
-    app.open(keyfile="systray.ini", extra_opts=["--test-options=fake-systray"])
+    # The fake systray window and the manager race for the focus
+    app.open(
+        keyfile="systray.ini",
+        extra_opts=["--test-options=fake-systray"],
+        check_active=False,
+    )
 
     systray = app.root.find("vmm-fake-systray", check_active=False)
     systray.grab_focus()
@@ -95,7 +100,12 @@ def testSystrayFake(app):
 
 
 def testSystrayToggle(app):
-    app.open(keyfile="systray.ini", extra_opts=["--test-options=fake-systray"])
+    # The fake systray window and the manager race for the focus
+    app.open(
+        keyfile="systray.ini",
+        extra_opts=["--test-options=fake-systray"],
+        check_active=False,
+    )
 
     systray = app.root.find("vmm-fake-systray", check_active=False)
     systray.grab_focus()

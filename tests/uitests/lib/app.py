@@ -317,6 +317,7 @@ class VMMDogtailApp:
         check_already_running=True,
         use_uri=True,
         window_name=None,
+        check_active=True,
         xmleditor_enabled=False,
         keyfile=None,
         break_setfacl=False,
@@ -381,4 +382,4 @@ class VMMDogtailApp:
             # On Fedora 39 sometimes app launch from the test suite
             # takes a while for reasons I can't quite figure
             self._root = dogtail.tree.root.application("virt-manager")
-            self._topwin = self.find_window(window_name)
+            self._topwin = self.find_window(window_name, check_active=check_active)
