@@ -1265,7 +1265,8 @@ class vmmManager(vmmGObjectUI):
     def _conn_row_selected_cb(self, _src, row):
         if self._sidebar_updating or row is None:
             return
-        self._set_current_conn(row.vmm_conn)
+        # From idle, see _filter_row_selected_cb
+        self.idle_add(self._set_current_conn, row.vmm_conn)
 
     def _conn_row_activated_cb(self, _src, row):
         self._set_current_conn(row.vmm_conn)
@@ -1391,7 +1392,9 @@ class vmmManager(vmmGObjectUI):
     def _filter_row_selected_cb(self, _src, row):
         if self._sidebar_updating or row is None:
             return
-        self._set_filter(row.vmm_filter)
+        # From idle: switching rebuilds the rows, which must not happen
+        # while the list box is still handling the click on one of them
+        self.idle_add(self._set_filter, row.vmm_filter)
 
     def _filter_list_button_press_cb(self, listbox, event):
         if event.button != 3:
